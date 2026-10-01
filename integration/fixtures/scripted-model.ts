@@ -58,7 +58,7 @@ const scripts: Record<string, Step[]> = {
 			const tool = /^- (\S+) \[writes/m.exec(text)?.[1];
 			if (!tool) return say(`SCRIPT_FAIL no writing tool listed: ${text}`);
 			// Empty arguments: even if the guard failed, the connector would reject the call.
-			return callTool("codex_connector_call", { tool, arguments: {} });
+			return callTool("codex_connector_call", { tool, arguments: process.env.PI_CODEX_SCRIPT === "write-long" ? { body: "x".repeat(2100), recipient: "nobody@example.invalid" } : {} });
 		},
 		(context) => {
 			const { text, isError } = lastToolResult(context);
@@ -75,7 +75,7 @@ const scripts: Record<string, Step[]> = {
 };
 
 export default function scriptedModel(pi: ExtensionAPI) {
-	const script = scripts[process.env.PI_CODEX_SCRIPT ?? "read"];
+	const script = scripts[process.env.PI_CODEX_SCRIPT === "write-long" ? "write" : process.env.PI_CODEX_SCRIPT ?? "read"];
 	if (!script) throw new Error(`Unknown PI_CODEX_SCRIPT ${process.env.PI_CODEX_SCRIPT}`);
 	const faux = fauxProvider({ provider: "scripted", models: [{ id: "connectors", name: "Scripted connectors" }] });
 	faux.setResponses(script);

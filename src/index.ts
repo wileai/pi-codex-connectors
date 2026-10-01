@@ -1,15 +1,6 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
-import {
-	DEFAULT_MAX_BYTES,
-	DEFAULT_MAX_LINES,
-	type ExtensionAPI,
-	type ExtensionContext,
-	formatSize,
-	truncateHead,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { truncateOutput } from "./output.ts";
 import { Type } from "typebox";
 import {
 	CodexConnectors,
@@ -39,19 +30,49 @@ export default function codexConnectorsExtension(pi: ExtensionAPI) {
 	let connectors: CodexConnectors | undefined;
 	// Elicitations arrive on the app-server channel, not on a tool call; answer with the latest UI.
 	let activeContext: ExtensionContext | undefined;
+	let dataApproved = false;
+	let dataApproval: Promise<void> | undefined;
+	let sessionGeneration = 0;
+	const approveData = async (ctx: ExtensionContext) => {
+		const policy = process.env.PI_CODEX_CONNECTORS_DATA;
+		if (policy === "deny") throw new Error("Connector data access denied by PI_CODEX_CONNECTORS_DATA=deny.");
+		if (dataApproved) return;
+		if (!dataApproval) {
+			const generation = sessionGeneration;
+			dataApproval = (async () => {
+				if (policy !== "allow") {
+					if (!ctx.hasUI) throw new Error("Connector data needs consent. Set PI_CODEX_CONNECTORS_DATA=allow to share connector results with the selected model.");
+					if (!await ctx.ui.confirm("Share connector data with this Pi session?", "Connected app names, schemas and results will enter the selected model's context and may be retained by Pi or its model provider. Read calls can retrieve private data. Continue only with a trusted model.")) {
+						throw new Error("Connector data access declined.");
+					}
+				}
+				if (generation !== sessionGeneration) throw new Error("Session changed during connector consent. Try again in the current session.");
+				dataApproved = true;
+			})();
+		}
+		const pending = dataApproval;
+		try { await pending; } finally {
+			if (dataApproval === pending) dataApproval = undefined;
+		}
+	};
+
+	const resetSession = async () => {
+		sessionGeneration++;
+		const current = connectors;
+		connectors = undefined;
+		activeContext = undefined;
+		dataApproved = false;
+		dataApproval = undefined;
+		await current?.close();
+	};
+	pi.on("session_start", resetSession);
+	pi.on("session_shutdown", resetSession);
 
 	const getConnectors = (ctx: ExtensionContext): CodexConnectors => {
 		activeContext = ctx;
 		connectors ??= new CodexConnectors({ onElicitation: (request) => elicit(activeContext, request) });
 		return connectors;
 	};
-
-	pi.on("session_shutdown", async () => {
-		const current = connectors;
-		connectors = undefined;
-		activeContext = undefined;
-		await current?.close();
-	});
 
 	pi.registerTool({
 		name: "codex_connectors",
@@ -72,6 +93,7 @@ export default function codexConnectorsExtension(pi: ExtensionAPI) {
 			refresh: Type.Optional(Type.Boolean({ description: "Reload connectors and tools from Codex" })),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			await approveData(ctx);
 			const service = getConnectors(ctx);
 			const all = params.refresh ? await service.refresh() : await service.connectors();
 			if (!params.connector && !params.query) return text(formatConnectors(all));
@@ -98,6 +120,7 @@ export default function codexConnectorsExtension(pi: ExtensionAPI) {
 			tool: Type.String({ description: "Exact tool name from codex_connectors, e.g. 'github.get_repo'" }),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			await approveData(ctx);
 			const tool = await requireTool(getConnectors(ctx), params.tool);
 			return text(
 				[
@@ -141,11 +164,12 @@ export default function codexConnectorsExtension(pi: ExtensionAPI) {
 			return args;
 		},
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+			await approveData(ctx);
 			const service = getConnectors(ctx);
 			const tool = await requireTool(service, params.tool);
 			const args = params.arguments ?? {};
-			if (!tool.readOnly) await approveWrite(tool, args, ctx);
-			const result = await service.call(tool.name, args, signal);
+			if (!tool.readOnly || tool.destructive) await approveWrite(tool, args, ctx);
+			const result = await service.call(tool.name, args, signal, tool);
 			return formatCallResult(tool, result);
 		},
 	});
@@ -153,6 +177,7 @@ export default function codexConnectorsExtension(pi: ExtensionAPI) {
 	pi.registerCommand("codex-connectors", {
 		description: "List connected Codex connectors (use 'refresh' to reload)",
 		handler: async (args, ctx) => {
+			await approveData(ctx);
 			const service = getConnectors(ctx);
 			try {
 				const all = args.trim() === "refresh" ? await service.refresh() : await service.connectors();
@@ -178,9 +203,13 @@ async function approveWrite(tool: ConnectorTool, args: Record<string, unknown>, 
 	if (!ctx.hasUI) {
 		throw new Error(`${denied}; no UI is available to approve it. Set PI_CODEX_CONNECTORS_WRITES=allow to permit it.`);
 	}
+	const serialized = JSON.stringify(args, null, 2);
+	if (serialized.length > 2000) {
+		throw new Error("Write arguments exceed the safe approval display limit (2000 characters). Reduce the operation size; nothing was sent.");
+	}
 	const approved = await ctx.ui.confirm(
 		`Allow ${tool.connectorName}: ${tool.name}?`,
-		`${accessLabel(tool)}\n\n${truncate(JSON.stringify(args, null, 2), 2000)}`,
+		`${accessLabel(tool)}\n\n${serialized}`,
 	);
 	if (!approved) throw new Error(`The user declined ${tool.name}.`);
 }
@@ -252,19 +281,17 @@ async function formatCallResult(tool: ConnectorTool, result: ToolCallResult) {
 	const output = parts.join("\n\n") || "(no output)";
 	if (result.isError) throw new Error(`${tool.name} failed: ${truncate(output, 4000)}`);
 
-	const truncation = truncateHead(output, { maxLines: DEFAULT_MAX_LINES, maxBytes: DEFAULT_MAX_BYTES });
+	const truncation = truncateOutput(output);
 	let body = truncation.content;
 	if (truncation.truncated) {
-		const file = join(await mkdtemp(join(tmpdir(), "pi-codex-connector-")), "result.txt");
-		await writeFile(file, output, "utf8");
-		body += `\n\n[Output truncated to ${truncation.outputLines} lines / ${formatSize(truncation.outputBytes)}. Full output: ${file}]`;
+		body += `\n\n[Output truncated to ${truncation.outputLines} lines / ${truncation.outputBytes} bytes. No full response was saved to disk. Narrow the query or use pagination.]`;
 	}
 	const content: (TextContent | ImageContent)[] = [{ type: "text", text: body }, ...images];
 	return { content, details: { tool: tool.name, connector: tool.connectorName } };
 }
 
 function accessLabel(tool: ConnectorTool): string {
-	if (tool.readOnly) return "read-only";
+	if (tool.readOnly && !tool.destructive) return "read-only";
 	return tool.destructive ? "writes, destructive" : "writes";
 }
 

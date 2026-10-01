@@ -113,6 +113,23 @@ describe("Codex connectors through the Codex app-server", () => {
 		await assert.rejects(service.connectors(), /closed/);
 	});
 
+	it("rejects a previously approved descriptor after catalog refresh", async () => {
+		const oldTool = await connectors.tool(profileTool.name);
+		assert.ok(oldTool);
+		await connectors.refresh();
+		await assert.rejects(connectors.call(profileTool.name, {}, undefined, oldTool), /catalog changed before dispatch/);
+	});
+
+	it("reports an unknown outcome for a dispatched read that times out", async () => {
+		const service = new CodexConnectors({ callTimeoutMs: 1 });
+		try {
+			await service.connectors();
+			await assert.rejects(service.call(profileTool.name, {}), /Connector outcome unknown/);
+		} finally {
+			await service.close();
+		}
+	});
+
 	it("reports a missing Codex executable", async () => {
 		const service = new CodexConnectors({ command: "/nonexistent/codex" });
 		await assert.rejects(service.connectors(), /failed to start|ENOENT/);

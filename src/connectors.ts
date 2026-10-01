@@ -1,7 +1,7 @@
-import { mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AppServerClient } from "./app-server.ts";
+import { AppServerClient, OutcomeUnknownError } from "./app-server.ts";
 
 /**
  * Codex connectors ("apps") through a model-free Codex app-server thread.
@@ -75,6 +75,7 @@ export interface CodexConnectorsOptions {
 }
 
 interface Session {
+	workspace?: string;
 	client: AppServerClient;
 	threadId: string;
 	connectors: Connector[];
@@ -97,6 +98,7 @@ export class CodexConnectors {
 	private readonly options: CodexConnectorsOptions;
 	private session: Promise<Session> | undefined = undefined;
 	private closed = false;
+	private writeOutcomeUnknown = false;
 
 	constructor(options: CodexConnectorsOptions = {}) {
 		this.options = options;
@@ -115,10 +117,17 @@ export class CodexConnectors {
 		return (await this.ready()).tools.get(name);
 	}
 
-	async call(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<ToolCallResult> {
+	async call(name: string, args: Record<string, unknown>, signal?: AbortSignal, expectedTool?: ConnectorTool): Promise<ToolCallResult> {
 		const session = await this.ready();
 		if (!session.tools.has(name)) {
 			throw new Error(`Unknown Codex connector tool "${name}". Use codex_connectors to find available tools.`);
+		}
+		const tool = session.tools.get(name)!;
+		if (expectedTool && tool !== expectedTool) {
+			throw new Error("Connector catalog changed before dispatch. Rediscover the tool and obtain fresh approval; nothing was sent.");
+		}
+		if (this.writeOutcomeUnknown && (!tool.readOnly || tool.destructive)) {
+			throw new Error("Writes blocked after an unknown connector outcome. Verify the previous action in the connected app, then restart the Pi session before writing again.");
 		}
 		const result = await session.client.request<{
 			content?: McpContent[];
@@ -128,7 +137,10 @@ export class CodexConnectors {
 			"mcpServer/tool/call",
 			{ threadId: session.threadId, server: APPS_SERVER, tool: name, arguments: args },
 			{ timeoutMs: this.options.callTimeoutMs ?? 120_000, signal },
-		);
+		).catch((error) => {
+			if (error instanceof OutcomeUnknownError && (!tool.readOnly || tool.destructive)) this.writeOutcomeUnknown = true;
+			throw error;
+		});
 		return {
 			content: Array.isArray(result.content) ? result.content : [],
 			structuredContent: result.structuredContent ?? undefined,
@@ -152,7 +164,10 @@ export class CodexConnectors {
 		this.session = undefined;
 		if (!session) return;
 		try {
-			await (await session).client.close();
+			const ready = await session;
+			try { await ready.client.close(); } finally {
+				if (ready.workspace) rmSync(ready.workspace, { recursive: true, force: true });
+			}
 		} catch {
 			// Start failures are already reported to the caller that awaited them.
 		}
@@ -172,19 +187,19 @@ export class CodexConnectors {
 		}
 		if (session.client.isAlive) return session;
 		// The app-server died (crash, sleep, update): start a fresh one.
+		if (session.workspace) rmSync(session.workspace, { recursive: true, force: true });
 		if (this.session === current) this.session = undefined;
 		return this.ready();
 	}
 
 	private async start(): Promise<Session> {
-		const workspace = join(tmpdir(), "pi-codex-connectors");
-		mkdirSync(workspace, { recursive: true, mode: 0o700 });
+		const workspace = mkdtempSync(join(tmpdir(), "pi-codex-connectors-"));
 		const client = await AppServerClient.start({
 			command: this.options.command ?? process.env.PI_CODEX_CONNECTORS_CODEX ?? "codex",
 			env: this.options.env,
 			cwd: workspace,
 			onServerRequest: (method, params) => this.answerServerRequest(method, params),
-		});
+		}).catch((error) => { rmSync(workspace, { recursive: true, force: true }); throw error; });
 		try {
 			const timeoutMs = this.options.discoveryTimeoutMs ?? 90_000;
 			const config = await client.request<{ config: { mcp_servers?: Record<string, unknown> | null } }>(
@@ -216,11 +231,14 @@ export class CodexConnectors {
 				{ threadId },
 				{ timeoutMs },
 			);
-			const apps = installed.apps.filter((app) => app.enabled && app.callable);
+			const allowed = process.env.PI_CODEX_CONNECTORS_ALLOW?.split(",").map((value) => value.trim().toLowerCase()).filter(Boolean);
+			const apps = installed.apps.filter((app) => app.enabled && app.callable &&
+				(allowed === undefined || allowed.includes(app.id.toLowerCase()) || allowed.includes((app.runtimeName ?? "").toLowerCase())));
 			const rawTools = await this.listAppTools(client, threadId, timeoutMs);
-			return buildSession(client, threadId, apps, rawTools);
+			return { ...buildSession(client, threadId, apps, rawTools), workspace };
 		} catch (error) {
 			await client.close();
+			rmSync(workspace, { recursive: true, force: true });
 			throw error;
 		}
 	}

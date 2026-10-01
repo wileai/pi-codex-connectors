@@ -80,7 +80,7 @@ function runPi(script: string, env: Record<string, string> = {}): Promise<PiRun>
 		],
 		{
 			cwd: agentDir,
-			env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_TELEMETRY: "0", PI_CODEX_SCRIPT: script, ...env },
+			env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_TELEMETRY: "0", PI_CODEX_CONNECTORS_DATA: "allow", PI_CODEX_SCRIPT: script, ...env },
 			stdio: ["ignore", "pipe", "pipe"],
 		},
 	);
@@ -172,6 +172,26 @@ describe("pi CLI with the Codex connectors extension", () => {
 		const run = await runPi("write", { PI_CODEX_CONNECTORS_WRITES: "deny" });
 		assert.equal(run.code, 0, run.stderr);
 		assert.match(finalText(run), /^SCRIPT_BLOCKED .*blocked by PI_CODEX_CONNECTORS_WRITES=deny/s);
+	});
+
+	it("requires data consent before discovery in headless mode", async () => {
+		const run = await runPi("read", { PI_CODEX_CONNECTORS_DATA: "ask" });
+		const results = toolResults(run);
+		assert.equal(results[0]?.isError, true);
+		assert.match(results[0]!.text, /Connector data needs consent/);
+		assert.equal(run.appServers.length, 0);
+	});
+
+	it("denies discovery when data sharing is disabled", async () => {
+		const run = await runPi("read", { PI_CODEX_CONNECTORS_DATA: "deny" });
+		assert.match(toolResults(run)[0]!.text, /data access denied/);
+		assert.equal(run.appServers.length, 0);
+	});
+
+	it("an empty connector allowlist exposes no apps", async () => {
+		const run = await runPi("read", { PI_CODEX_CONNECTORS_ALLOW: "" });
+		assert.match(toolResults(run)[0]!.text, /No Codex connectors/);
+		await assertNoLeftoverAppServers(run);
 	});
 
 	it("rejects a tool that is not in the connected catalog", async () => {

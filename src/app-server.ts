@@ -38,6 +38,12 @@ export interface RequestOptions {
 	signal?: AbortSignal;
 }
 
+export class OutcomeUnknownError extends Error {
+	constructor(reason: string) {
+		super(`${reason}. Connector outcome unknown: it may still complete. Do not retry a write; verify its state in the connected app first.`);
+	}
+}
+
 const MAX_STDERR_TAIL = 4096;
 const DEFAULT_TIMEOUT_MS = 60_000;
 
@@ -65,12 +71,17 @@ export class AppServerClient {
 		});
 		const client = new AppServerClient(child, options.onServerRequest);
 		client.attach();
-		await client.request("initialize", {
-			clientInfo: { name: "pi_codex_connectors", title: "pi Codex connectors", version: "0.1.0" },
-			capabilities: { experimentalApi: true },
-		});
-		client.notify("initialized", {});
-		return client;
+		try {
+			await client.request("initialize", {
+				clientInfo: { name: "pi_codex_connectors", title: "pi Codex connectors", version: "0.1.0" },
+				capabilities: { experimentalApi: true },
+			});
+			client.notify("initialized", {});
+			return client;
+		} catch (error) {
+			await client.close();
+			throw error;
+		}
 	}
 
 	get isAlive(): boolean {
@@ -84,13 +95,15 @@ export class AppServerClient {
 		return new Promise<T>((resolve, reject) => {
 			const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 			const timer = setTimeout(() => {
+				this.pending.get(id)?.cleanup();
 				this.pending.delete(id);
-				reject(new Error(`Codex app-server did not answer ${method} within ${Math.round(timeoutMs / 1000)}s`));
+				const reason = `Codex app-server did not answer ${method} within ${Math.round(timeoutMs / 1000)}s`;
+				reject(method === "mcpServer/tool/call" ? new OutcomeUnknownError(reason) : new Error(reason));
 			}, timeoutMs);
 			const onAbort = () => {
 				this.pending.get(id)?.cleanup();
 				this.pending.delete(id);
-				reject(new Error(`${method} was aborted`));
+				reject(method === "mcpServer/tool/call" ? new OutcomeUnknownError(`${method} was aborted after dispatch`) : new Error(`${method} was aborted`));
 			};
 			options.signal?.addEventListener("abort", onAbort, { once: true });
 			this.pending.set(id, {
@@ -138,7 +151,7 @@ export class AppServerClient {
 			this.exited = new Error(`Codex app-server ${reason}${tail ? `: ${tail.slice(-500)}` : ""}`);
 			for (const pending of this.pending.values()) {
 				pending.cleanup();
-				pending.reject(this.exited);
+				pending.reject(pending.method === "mcpServer/tool/call" ? new OutcomeUnknownError("Codex app-server disconnected") : this.exited);
 			}
 			this.pending.clear();
 			for (const resolve of this.exitWaiters.splice(0)) resolve();
