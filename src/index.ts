@@ -269,6 +269,7 @@ function formatTools(tools: ConnectorTool[]): string {
 }
 
 async function formatCallResult(tool: ConnectorTool, result: ToolCallResult) {
+	if (result.isError) throw new Error("Codex connector reported a tool error; private response details were withheld. Check the connected app before retrying.");
 	const parts: string[] = [];
 	const images: ImageContent[] = [];
 	for (const item of result.content) {
@@ -279,7 +280,6 @@ async function formatCallResult(tool: ConnectorTool, result: ToolCallResult) {
 	}
 	if (result.structuredContent !== undefined) parts.push(JSON.stringify(result.structuredContent, null, 2));
 	const output = parts.join("\n\n") || "(no output)";
-	if (result.isError) throw new Error(`${tool.name} failed: ${truncate(output, 4000)}`);
 
 	const truncation = truncateOutput(output);
 	let body = truncation.content;

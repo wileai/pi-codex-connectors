@@ -28,7 +28,7 @@ async function run(script: string) {
 	const dialogs: string[] = [];
 	const texts: string[] = [];
 	let buffer = "";
-	let stderr = "";
+	let invalidOutput = false;
 	child.stdout.setEncoding("utf8");
 	child.stdout.on("data", (chunk: string) => {
 		buffer += chunk;
@@ -36,7 +36,8 @@ async function run(script: string) {
 		while ((newline = buffer.indexOf("\n")) !== -1) {
 			const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1);
 			if (!line.trim()) continue;
-			const event = JSON.parse(line) as Event;
+			let event: Event;
+			try { event = JSON.parse(line) as Event; } catch { invalidOutput = true; child.kill("SIGTERM"); return; }
 			if (event.type === "extension_ui_request" && event.method === "confirm") {
 				dialogs.push(event.title ?? "");
 				child.stdin.write(JSON.stringify({ type: "extension_ui_response", id: event.id,
@@ -48,12 +49,13 @@ async function run(script: string) {
 			if (event.type === "agent_end") child.stdin.end();
 		}
 	});
-	child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+	child.stderr.resume();
 	const timer = setTimeout(() => child.kill("SIGTERM"), 120_000);
 	try {
-		const completion = new Promise<number | null>((resolve, reject) => { child.on("close", resolve); child.on("error", reject); });
+		const completion = new Promise<number | null>((resolve, reject) => { child.on("close", resolve); child.on("error", () => reject(new Error("Pi process failed to start; diagnostics withheld"))); });
 		child.stdin.write(JSON.stringify({ type: "prompt", message: "Exercise connector approval." }) + "\n");
-		assert.equal(await completion, 0, stderr);
+		assert.equal(await completion, 0, "Pi exited unsuccessfully; diagnostics withheld");
+		assert.ok(!invalidOutput, "Pi returned invalid JSON; output withheld");
 		return { dialogs, text: texts.join("\n") };
 	} finally {
 		clearTimeout(timer);
@@ -64,12 +66,12 @@ async function run(script: string) {
 it("real Pi UI rejects oversized arguments without offering a truncated approval", async () => {
 	const result = await run("write-long");
 	assert.equal(result.dialogs.length, 1, "only the data consent dialog should be offered");
-	assert.match(result.text, /Write arguments exceed the safe approval display limit/);
+	assert.ok(/Write arguments exceed the safe approval display limit/.test(result.text), "missing oversized-write denial");
 });
 
 it("real Pi UI honors a declined write after accepting data consent", async () => {
 	const result = await run("write");
 	assert.equal(result.dialogs.length, 2);
-	assert.match(result.dialogs[1]!, /^Allow GitHub:/);
-	assert.match(result.text, /The user declined/);
+	assert.ok(/^Allow GitHub:/.test(result.dialogs[1]!), "missing GitHub write dialog");
+	assert.ok(/The user declined/.test(result.text), "missing declined-write denial");
 });

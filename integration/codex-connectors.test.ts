@@ -54,8 +54,8 @@ describe("Codex connectors through the Codex app-server", () => {
 		assert.ok(all.length > 0, "expected at least one connected app");
 		for (const connector of all) {
 			for (const tool of connector.tools) {
-				assert.equal(tool.connectorId, connector.id);
-				assert.equal(tool.inputSchema.type, "object", `${tool.name} has no object input schema`);
+				assert.ok(tool.connectorId === connector.id, "tool belongs to the wrong connector");
+				assert.ok(tool.inputSchema.type === "object", "tool has no object input schema");
 			}
 		}
 		const names = all.flatMap((connector) => connector.tools.map((tool) => tool.name));
@@ -71,9 +71,9 @@ describe("Codex connectors through the Codex app-server", () => {
 
 	it("calls a read-only connector tool and returns its structured result", async () => {
 		const result = await connectors.call(profileTool.name, {});
-		assert.equal(result.isError, false, JSON.stringify(result));
+		assert.ok(!result.isError, "profile call failed; response withheld");
 		const payload = JSON.stringify([result.content, result.structuredContent]);
-		assert.ok(payload.length > 20, `unexpectedly empty result: ${payload}`);
+		assert.ok(payload.length > 20, "profile response unexpectedly empty; response withheld");
 	});
 
 	it("rejects tools outside the connected catalog without calling Codex", async () => {
@@ -130,9 +130,11 @@ describe("Codex connectors through the Codex app-server", () => {
 		}
 	});
 
-	it("reports a missing Codex executable", async () => {
-		const service = new CodexConnectors({ command: "/nonexistent/codex" });
-		await assert.rejects(service.connectors(), /failed to start|ENOENT/);
+	it("reports a missing Codex executable without exposing its private path", async () => {
+		const marker = "SYNTHETIC_PRIVATE_EXECUTABLE";
+		const service = new CodexConnectors({ command: `/${marker}/codex` });
+		await assert.rejects(service.connectors(), (error: unknown) =>
+			error instanceof Error && /failed to start/.test(error.message) && !error.message.includes(marker));
 		await service.close();
 	});
 });

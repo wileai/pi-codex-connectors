@@ -34,12 +34,12 @@ const scripts: Record<string, Step[]> = {
 		() => callTool("codex_connectors", {}),
 		(context) => {
 			const { text } = lastToolResult(context);
-			if (!/GitHub/.test(text)) return say(`SCRIPT_FAIL no GitHub connector in: ${text}`);
+			if (!/GitHub/.test(text)) return say("SCRIPT_FAIL GitHub connector unavailable");
 			return callTool("codex_connectors", { connector: "GitHub", query: "profile" });
 		},
 		(context) => {
 			const { text } = lastToolResult(context);
-			if (!text.includes("github.get_profile")) return say(`SCRIPT_FAIL profile tool not listed: ${text}`);
+			if (!text.includes("github.get_profile")) return say("SCRIPT_FAIL profile tool unavailable");
 			return callTool("codex_connector_schema", { tool: "github.get_profile" });
 		},
 		// Arguments as a JSON string, the way weaker models often send them.
@@ -47,7 +47,7 @@ const scripts: Record<string, Step[]> = {
 		(context) => {
 			const { text, isError } = lastToolResult(context);
 			const nickname = /"nickname":\s*"([^"]+)"/.exec(text)?.[1];
-			return say(isError || !nickname ? `SCRIPT_FAIL ${text}` : `SCRIPT_OK github user ${nickname}`);
+			return say(isError || !nickname ? "SCRIPT_FAIL profile response invalid" : "SCRIPT_OK profile verified");
 		},
 	],
 	// A tool that writes must not run without approval when there is no UI.
@@ -56,27 +56,27 @@ const scripts: Record<string, Step[]> = {
 		(context) => {
 			const { text } = lastToolResult(context);
 			const tool = /^- (\S+) \[writes/m.exec(text)?.[1];
-			if (!tool) return say(`SCRIPT_FAIL no writing tool listed: ${text}`);
+			if (!tool) return say("SCRIPT_FAIL writing tool unavailable");
 			// Empty arguments: even if the guard failed, the connector would reject the call.
 			return callTool("codex_connector_call", { tool, arguments: process.env.PI_CODEX_SCRIPT === "write-long" ? { body: "x".repeat(2100), recipient: "nobody@example.invalid" } : {} });
 		},
 		(context) => {
-			const { text, isError } = lastToolResult(context);
-			return say(isError ? `SCRIPT_BLOCKED ${text}` : `SCRIPT_FAIL write ran: ${text}`);
+			const { isError } = lastToolResult(context);
+			return say(isError ? "SCRIPT_BLOCKED" : "SCRIPT_FAIL write unexpectedly ran");
 		},
 	],
 	unknown: [
 		() => callTool("codex_connector_call", { tool: "github.no_such_tool", arguments: {} }),
 		(context) => {
-			const { text, isError } = lastToolResult(context);
-			return say(isError ? `SCRIPT_REJECTED ${text}` : `SCRIPT_FAIL ${text}`);
+			const { isError } = lastToolResult(context);
+			return say(isError ? "SCRIPT_REJECTED" : "SCRIPT_FAIL unknown tool accepted");
 		},
 	],
 };
 
 export default function scriptedModel(pi: ExtensionAPI) {
 	const script = scripts[process.env.PI_CODEX_SCRIPT === "write-long" ? "write" : process.env.PI_CODEX_SCRIPT ?? "read"];
-	if (!script) throw new Error(`Unknown PI_CODEX_SCRIPT ${process.env.PI_CODEX_SCRIPT}`);
+	if (!script) throw new Error("Unknown scenario script");
 	const faux = fauxProvider({ provider: "scripted", models: [{ id: "connectors", name: "Scripted connectors" }] });
 	faux.setResponses(script);
 	pi.registerProvider(faux.provider);

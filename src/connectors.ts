@@ -254,7 +254,7 @@ export class CodexConnectors {
 			);
 			for (const server of result.data) {
 				if (server.name !== APPS_SERVER) continue;
-				if (server.toolsError) throw new Error(`Codex could not load connector tools: ${server.toolsError}`);
+				if (server.toolsError) throw new Error("Codex could not load connector tools. Check Codex locally; private diagnostics were withheld.");
 				tools.push(...Object.values(server.tools));
 			}
 			cursor = result.nextCursor;

@@ -1,6 +1,7 @@
 {
 	"name": "pi-codex-connectors",
 	"version": "0.1.0",
+	"license": "MIT",
 	"description": "Use every connected Codex (ChatGPT) connector from any pi model",
 	"type": "module",
 	"keywords": [

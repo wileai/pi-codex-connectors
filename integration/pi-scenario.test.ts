@@ -5,7 +5,7 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, describe, it } from "node:test";
@@ -28,7 +28,7 @@ type PiEvent = {
 
 interface PiRun {
 	code: number | null;
-	stderr: string;
+	invalidOutput: boolean;
 	events: PiEvent[];
 	/** app-server processes seen while pi was running that were not running before. */
 	appServers: number[];
@@ -80,14 +80,14 @@ function runPi(script: string, env: Record<string, string> = {}): Promise<PiRun>
 		],
 		{
 			cwd: agentDir,
-			env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_TELEMETRY: "0", PI_CODEX_CONNECTORS_DATA: "allow", PI_CODEX_SCRIPT: script, ...env },
+			env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_TELEMETRY: "0", PI_CODEX_CONNECTORS_DATA: "allow", PI_CODEX_CONNECTORS_WRITES: "ask", PI_CODEX_CONNECTORS_ALLOW: "GitHub", PI_CODEX_SCRIPT: script, ...env },
 			stdio: ["ignore", "pipe", "pipe"],
 		},
 	);
 	const events: PiEvent[] = [];
 	const seen = new Set<number>();
 	let buffer = "";
-	let stderr = "";
+	let invalidOutput = false;
 	child.stdout.setEncoding("utf8");
 	child.stdout.on("data", (chunk: string) => {
 		buffer += chunk;
@@ -96,7 +96,8 @@ function runPi(script: string, env: Record<string, string> = {}): Promise<PiRun>
 			const line = buffer.slice(0, newline).replace(/\r$/, "");
 			buffer = buffer.slice(newline + 1);
 			if (line.trim()) {
-				const event = JSON.parse(line) as PiEvent;
+				let event: PiEvent;
+				try { event = JSON.parse(line) as PiEvent; } catch { invalidOutput = true; child.kill("SIGTERM"); return; }
 				events.push(event);
 				if (event.type === "message_end" && event.message?.role === "toolResult") {
 					for (const pid of appServerPids()) if (!before.has(pid)) seen.add(pid);
@@ -105,14 +106,13 @@ function runPi(script: string, env: Record<string, string> = {}): Promise<PiRun>
 			newline = buffer.indexOf("\n");
 		}
 	});
-	child.stderr.on("data", (chunk: Buffer) => {
-		stderr += chunk.toString("utf8");
-	});
+	child.stderr.resume();
 	const timeout = setTimeout(() => child.kill("SIGKILL"), 120_000);
-	return new Promise((resolve) => {
+	return new Promise((resolve, reject) => {
+		child.on("error", () => { clearTimeout(timeout); reject(new Error("Pi process failed to start; diagnostics withheld")); });
 		child.on("close", (code) => {
 			clearTimeout(timeout);
-			resolve({ code, stderr, events, appServers: [...seen] });
+			resolve({ code, invalidOutput, events, appServers: [...seen] });
 		});
 	});
 }
@@ -142,7 +142,8 @@ describe("pi CLI with the Codex connectors extension", () => {
 
 	it("discovers connectors, reads a schema, and calls GitHub through Codex", async () => {
 		const run = await runPi("read");
-		assert.equal(run.code, 0, run.stderr);
+		assert.equal(run.code, 0, "Pi exited unsuccessfully; diagnostics withheld");
+		assert.ok(!run.invalidOutput, "Pi returned invalid JSON; output withheld");
 		const results = toolResults(run);
 		assert.deepEqual(
 			results.map((result) => [result.tool, result.isError]),
@@ -152,51 +153,78 @@ describe("pi CLI with the Codex connectors extension", () => {
 				["codex_connector_schema", false],
 				["codex_connector_call", false],
 			],
-			JSON.stringify(results, null, 2),
+			"unexpected tool sequence; response content withheld",
 		);
-		assert.match(results[0]!.text, /Connected Codex connectors \(\d+\)/);
-		assert.match(results[2]!.text, /Input schema:/);
-		assert.match(finalText(run), /^SCRIPT_OK github user \S+/);
+		assert.ok(/Connected Codex connectors \(\d+\)/.test(results[0]!.text), "connector listing missing");
+		assert.ok(/Input schema:/.test(results[2]!.text), "tool schema missing");
+		assert.ok(finalText(run) === "SCRIPT_OK profile verified", "profile scenario failed; response withheld");
 		assert.ok(run.appServers.length > 0, "expected pi to start a Codex app-server");
 		await assertNoLeftoverAppServers(run);
 	});
 
 	it("blocks a writing tool when no UI can approve it", async () => {
 		const run = await runPi("write");
-		assert.equal(run.code, 0, run.stderr);
-		assert.match(finalText(run), /^SCRIPT_BLOCKED .*no UI is available to approve it/s);
+		assert.equal(run.code, 0, "Pi exited unsuccessfully; diagnostics withheld");
+		assert.ok(!run.invalidOutput, "Pi returned invalid JSON; output withheld");
+		assert.ok(finalText(run) === "SCRIPT_BLOCKED", "write must be blocked");
+		assert.ok(toolResults(run).some((result) => result.isError && /no UI is available to approve it/.test(result.text)), "missing headless denial");
 		await assertNoLeftoverAppServers(run);
 	});
 
 	it("blocks a writing tool when PI_CODEX_CONNECTORS_WRITES=deny", async () => {
 		const run = await runPi("write", { PI_CODEX_CONNECTORS_WRITES: "deny" });
-		assert.equal(run.code, 0, run.stderr);
-		assert.match(finalText(run), /^SCRIPT_BLOCKED .*blocked by PI_CODEX_CONNECTORS_WRITES=deny/s);
+		assert.equal(run.code, 0, "Pi exited unsuccessfully; diagnostics withheld");
+		assert.ok(!run.invalidOutput, "Pi returned invalid JSON; output withheld");
+		assert.ok(finalText(run) === "SCRIPT_BLOCKED", "write must be blocked");
+		assert.ok(toolResults(run).some((result) => result.isError && /blocked by PI_CODEX_CONNECTORS_WRITES=deny/.test(result.text)), "missing write-policy denial");
 	});
 
 	it("requires data consent before discovery in headless mode", async () => {
 		const run = await runPi("read", { PI_CODEX_CONNECTORS_DATA: "ask" });
 		const results = toolResults(run);
 		assert.equal(results[0]?.isError, true);
-		assert.match(results[0]!.text, /Connector data needs consent/);
+		assert.ok(/Connector data needs consent/.test(results[0]!.text), "missing data-consent denial");
 		assert.equal(run.appServers.length, 0);
 	});
 
 	it("denies discovery when data sharing is disabled", async () => {
 		const run = await runPi("read", { PI_CODEX_CONNECTORS_DATA: "deny" });
-		assert.match(toolResults(run)[0]!.text, /data access denied/);
+		assert.ok(/data access denied/.test(toolResults(run)[0]!.text), "missing data-policy denial");
 		assert.equal(run.appServers.length, 0);
 	});
 
 	it("an empty connector allowlist exposes no apps", async () => {
 		const run = await runPi("read", { PI_CODEX_CONNECTORS_ALLOW: "" });
-		assert.match(toolResults(run)[0]!.text, /No Codex connectors/);
+		assert.ok(/No Codex connectors/.test(toolResults(run)[0]!.text), "empty allowlist exposed connectors");
 		await assertNoLeftoverAppServers(run);
+	});
+
+	it("withholds invalid local Codex configuration from the real Pi transcript", async () => {
+		const home = mkdtempSync(join(tmpdir(), "pi-private-config-"));
+		const marker = "SYNTHETIC_PRIVATE_CONFIG_VALUE";
+		try {
+			writeFileSync(join(home, "config.toml"), `approval_policy = "${marker}"\n`, { mode: 0o600 });
+			const run = await runPi("read", { CODEX_HOME: home });
+			assert.equal(run.code, 0, "Pi diagnostic scenario failed");
+			assert.ok(!run.invalidOutput, "Pi diagnostic scenario returned invalid JSON");
+			const results = toolResults(run);
+			assert.ok(results[0]?.isError, "invalid config must fail discovery");
+			assert.ok(/private diagnostics were withheld/.test(results[0]!.text), "missing safe diagnostic");
+			const transcript = JSON.stringify(run.events);
+			assert.ok(!transcript.includes(marker), "private config value leaked into transcript");
+			assert.ok(!transcript.includes(home), "private config path leaked into transcript");
+			assert.ok(finalText(run) === "SCRIPT_FAIL GitHub connector unavailable", "scenario must use a fixed failure label");
+			await assertNoLeftoverAppServers(run);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
 	});
 
 	it("rejects a tool that is not in the connected catalog", async () => {
 		const run = await runPi("unknown");
-		assert.equal(run.code, 0, run.stderr);
-		assert.match(finalText(run), /^SCRIPT_REJECTED .*Unknown Codex connector tool "github.no_such_tool"/s);
+		assert.equal(run.code, 0, "Pi exited unsuccessfully; diagnostics withheld");
+		assert.ok(!run.invalidOutput, "Pi returned invalid JSON; output withheld");
+		assert.ok(finalText(run) === "SCRIPT_REJECTED", "unknown tool must be rejected");
+		assert.ok(/Unknown Codex connector tool/.test(toolResults(run)[0]!.text), "missing unknown-tool rejection");
 	});
 });

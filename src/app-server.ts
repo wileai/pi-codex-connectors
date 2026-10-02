@@ -44,7 +44,6 @@ export class OutcomeUnknownError extends Error {
 	}
 }
 
-const MAX_STDERR_TAIL = 4096;
 const DEFAULT_TIMEOUT_MS = 60_000;
 
 export class AppServerClient {
@@ -53,7 +52,6 @@ export class AppServerClient {
 	private readonly pending = new Map<number, Pending>();
 	private readonly onServerRequest: ServerRequestHandler | undefined;
 	private nextId = 0;
-	private stderrTail = "";
 	private exited: Error | undefined;
 	private readonly exitWaiters: Array<() => void> = [];
 
@@ -64,11 +62,16 @@ export class AppServerClient {
 	}
 
 	static async start(options: AppServerOptions): Promise<AppServerClient> {
-		const child = spawn(options.command, ["app-server", "--listen", "stdio://"], {
-			cwd: options.cwd,
-			env: options.env ?? process.env,
-			stdio: ["pipe", "pipe", "pipe"],
-		});
+		let child: ChildProcessWithoutNullStreams;
+		try {
+			child = spawn(options.command, ["app-server", "--listen", "stdio://"], {
+				cwd: options.cwd,
+				env: options.env ?? process.env,
+				stdio: ["pipe", "pipe", "pipe"],
+			});
+		} catch {
+			throw new Error("Codex app-server failed to start. Check the executable and configuration locally; private diagnostics were withheld.");
+		}
 		const client = new AppServerClient(child, options.onServerRequest);
 		client.attach();
 		try {
@@ -136,9 +139,8 @@ export class AppServerClient {
 	}
 
 	private attach(): void {
-		this.child.stderr.on("data", (chunk: Buffer) => {
-			this.stderrTail = (this.stderrTail + chunk.toString("utf8")).slice(-MAX_STDERR_TAIL);
-		});
+		// Diagnostics can contain config values, credentials and local paths. Drain without retaining them.
+		this.child.stderr.resume();
 		this.child.stdin.on("error", () => {
 			// Reported through the exit handler.
 		});
@@ -147,8 +149,7 @@ export class AppServerClient {
 		});
 		const onGone = (reason: string) => {
 			if (this.exited) return;
-			const tail = this.stderrTail.trim();
-			this.exited = new Error(`Codex app-server ${reason}${tail ? `: ${tail.slice(-500)}` : ""}`);
+			this.exited = new Error(`Codex app-server ${reason}. Check Codex locally; private diagnostics were withheld.`);
 			for (const pending of this.pending.values()) {
 				pending.cleanup();
 				pending.reject(pending.method === "mcpServer/tool/call" ? new OutcomeUnknownError("Codex app-server disconnected") : this.exited);
@@ -156,7 +157,7 @@ export class AppServerClient {
 			this.pending.clear();
 			for (const resolve of this.exitWaiters.splice(0)) resolve();
 		};
-		this.child.on("error", (error) => onGone(`failed to start (${error.message})`));
+		this.child.on("error", () => onGone("failed to start"));
 		this.child.on("exit", (code, signal) => onGone(`exited (${signal ?? `code ${code}`})`));
 	}
 
@@ -178,7 +179,11 @@ export class AppServerClient {
 		this.pending.delete(message.id);
 		pending.cleanup();
 		if (message.error) {
-			pending.reject(new Error(`${pending.method} failed: ${message.error.message ?? JSON.stringify(message.error)}`));
+			// Use only known protocol classifications, never arbitrary server messages or data.
+			const category = message.error.code === -32601 ? "method unavailable"
+				: message.error.code === -32602 ? "invalid parameters"
+				: "request rejected";
+			pending.reject(new Error(`Codex app-server ${pending.method} failed (${category}). Check Codex locally; private diagnostics were withheld.`));
 		} else {
 			pending.resolve(message.result);
 		}
@@ -189,8 +194,8 @@ export class AppServerClient {
 			if (!this.onServerRequest) throw new Error(`Unsupported server request ${method}`);
 			const result = await this.onServerRequest(method, params);
 			this.write({ id, result });
-		} catch (error) {
-			this.write({ id, error: { code: -32601, message: error instanceof Error ? error.message : String(error) } });
+		} catch {
+			this.write({ id, error: { code: -32601, message: "Client could not handle the server request; private diagnostics were withheld." } });
 		}
 	}
 

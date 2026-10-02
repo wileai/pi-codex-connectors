@@ -1,2 +1,14 @@
 node_modules/
 .DS_Store
+.env
+.env.*
+!.env.example
+.private/
+auth.json
+*.pem
+*.key
+*.log
+*.jsonl
+*.tgz
+/artifacts/
+/coverage/
