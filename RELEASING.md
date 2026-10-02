@@ -28,3 +28,10 @@ The workflow has OIDC permission and a supported npm version. Verify a subsequen
 4. Confirm the publish workflow succeeded and the npm version is available. A failed workflow is not a published release. Fix a credentials-only failure and rerun the failed job; if package contents must change, publish a new version and release.
 
 Users with the unpinned source `npm:@wileai/pi-codex-connector` run `pi update npm:@wileai/pi-codex-connector` (or `pi update --extensions` on current Pi), then restart Pi. Pinned versions stay pinned. npm publication makes updates available; it does not push code into running sessions.
+
+## Repository protections
+
+- `main` requires one code-owner approval from `@AlexandrosKyriakakis` for non-admin contributors. Administrators can bypass and merge without approval. Force pushes and branch deletion remain disabled.
+- The active release-tag ruleset restricts creation, updates, and deletion of `v*` tags to repository administrators.
+- npm publishing first checks that both the original workflow actor and the actor requesting a rerun are repository administrators. Non-admin release events fail before the publish job. A manual workflow run only verifies permissions and never publishes.
+- GitHub release records do not offer code-owner reviews. Users with GitHub's write permission may still edit release metadata; the tag ruleset and npm workflow gate protect release tags and package publication, not release-note text.
