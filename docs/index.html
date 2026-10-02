@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pi Codex Connector</title>
+<meta name="description" content="A Pi extension that lets any Pi model use every plugin you have connected in Codex: Gmail, GitHub, Slack, Linear, Figma, Google Drive and more.">
+<meta property="og:title" content="Pi Codex Connector">
+<meta property="og:description" content="Every Codex plugin, inside Pi. Use your connected Codex (ChatGPT) plugins from any Pi model.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://wileai.github.io/pi-codex-connectors/">
+<meta property="og:image" content="https://wileai.github.io/pi-codex-connectors/assets/codex-plugins.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/svg+xml" href="assets/mark.svg">
+<script>
+(() => {
+  let mode = null;
+  try { mode = localStorage.getItem("pcc:theme"); } catch {}
+  const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const theme = mode === "light" || mode === "dark" ? mode : (dark ? "dark" : "light");
+  document.documentElement.dataset.theme = theme;
+  document.documentElement.style.colorScheme = theme;
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400;1,6..72,500&display=swap">
+<style>
+  :root {
+    --coral: #f09082;
+    --blue: #4d9abf;
+    --sun: #f1be58;
+
+    --bg-deep: #0d1116;
+    --bg: #161d27;
+    --panel: #212730e6;
+    --panel-soft: #252f3dd1;
+    --line: #49505980;
+    --line-strong: #757d8975;
+    --text: #ebe7e4;
+    --copy: #ebe7e4bf;
+    --muted: #9fa4abad;
+    --muted-strong: #d5d8dbcc;
+    --accent: #6a9fcc;
+    --accent-soft: #6a9fcc13;
+    --accent-line: #6a9fcc66;
+    --tint: #ffffff05;
+    --grid-minor: hsl(218 60% 80% / 0.012);
+    --grid-major: hsl(218 60% 80% / 0.03);
+    --shadow: #00000040;
+    --ok: #5db87a;
+    --warn: #e8993a;
+
+    --serif: "Newsreader", "Plantin MT Pro", Georgia, serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg-deep: #dacbc2; --bg: #ebe7e4; --panel: #f4f2f0; --panel-soft: #eef1f3;
+      --line: #8b847d59; --line-strong: #5c575240; --text: #252f3df5; --copy: #384251dc;
+      --muted: #5c5752c4; --muted-strong: #394352d6; --accent: #4b607c; --accent-soft: #4b607c10;
+      --accent-line: #4b607c57; --tint: #252f3d0d; --grid-minor: #252f3d06; --grid-major: #252f3d10;
+      --shadow: #5c575226;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg-deep: #dacbc2; --bg: #ebe7e4; --panel: #f4f2f0; --panel-soft: #eef1f3;
+    --line: #8b847d59; --line-strong: #5c575240; --text: #252f3df5; --copy: #384251dc;
+    --muted: #5c5752c4; --muted-strong: #394352d6; --accent: #4b607c; --accent-soft: #4b607c10;
+    --accent-line: #4b607c57; --tint: #252f3d0d; --grid-minor: #252f3d06; --grid-major: #252f3d10;
+    --shadow: #5c575226;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 6rem; }
+  body {
+    margin: 0;
+    background-color: var(--bg);
+    background-image:
+      linear-gradient(var(--grid-major) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-major) 1px, transparent 1px),
+      linear-gradient(var(--grid-minor) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-minor) 1px, transparent 1px);
+    background-size: 100px 100px, 100px 100px, 20px 20px, 20px 20px;
+    color: var(--copy);
+    font-family: var(--serif);
+    font-size: 18px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: var(--accent-line); }
+  a { color: var(--accent); text-decoration-color: var(--accent-line); text-underline-offset: 3px; }
+  a:hover { text-decoration-color: var(--accent); }
+  code { font-family: var(--mono); font-size: 0.82em; color: var(--text); background: var(--accent-soft); border: 1px solid var(--accent-soft); padding: 0.05em 0.35em; border-radius: 3px; }
+  .wrap { width: min(1080px, 100% - 32px); margin-inline: auto; }
+  .label {
+    font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted);
+  }
+
+  /* nav */
+  .nav { position: sticky; top: 12px; z-index: 10; margin-top: 12px; }
+  .nav-inner {
+    display: flex; align-items: center; gap: 1.25rem; padding: 0.7rem 1rem;
+    background: linear-gradient(180deg, var(--panel), var(--panel-soft));
+    border: 1px solid var(--line); border-radius: 6px; backdrop-filter: blur(10px);
+    box-shadow: 0 10px 30px -18px var(--shadow);
+  }
+  .nav-brand { display: flex; align-items: center; gap: 0.6rem; text-decoration: none; color: var(--text); }
+  .nav-brand svg { width: 22px; height: 22px; }
+  .nav-brand span { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; }
+  .nav-links { display: flex; gap: 1.1rem; margin-inline: auto; }
+  .nav-links a { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted-strong); text-decoration: none; }
+  .nav-links a:hover { color: var(--accent); }
+  .theme-toggle {
+    background: none; border: 1px solid var(--line); border-radius: 4px; color: var(--muted-strong);
+    font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.12em; padding: 0.35rem 0.55rem; cursor: pointer;
+  }
+  .theme-toggle:hover { border-color: var(--accent-line); color: var(--accent); }
+
+  /* hero */
+  .hero { text-align: center; padding: 5.5rem 0 3.5rem; }
+  .hero-mark { width: 72px; height: 72px; margin: 0 auto 2rem; display: block; }
+  h1, h2, h3 { font-family: var(--serif); font-weight: 400; color: var(--text); margin: 0; }
+  h1 { font-size: clamp(2.4rem, 6vw, 3.6rem); line-height: 1.1; font-style: italic; letter-spacing: -0.01em; }
+  h1 em, h2 em { color: var(--accent); }
+  .lede { max-width: 38rem; margin: 1.5rem auto 0; font-size: 1.15rem; color: var(--copy); }
+
+  /* install box */
+  .install { max-width: 660px; margin: 2.5rem auto 0; text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 14px 40px -20px var(--shadow); }
+  .tabs { display: flex; border-bottom: 1px solid var(--line); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  .tab {
+    background: none; border: 0; border-right: 1px solid var(--line); color: var(--muted); cursor: pointer;
+    font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.14em; text-transform: uppercase; padding: 0.9rem 1.2rem; white-space: nowrap;
+    position: relative;
+  }
+  .tab[aria-selected="true"] { color: var(--text); background: var(--accent-soft); }
+  .tab[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--accent); }
+  .tab-panel { display: flex; align-items: center; gap: 1rem; padding: 1.4rem 1.2rem; }
+  .tab-panel[hidden] { display: none; }
+  .tab-panel pre { margin: 0; flex: 1; overflow-x: auto; font-family: var(--mono); font-size: 0.86rem; color: var(--muted-strong); line-height: 1.7; }
+  .tab-panel pre .p { color: var(--muted); user-select: none; }
+  .copy {
+    flex: none; background: none; border: 1px solid var(--line); border-radius: 3px; color: var(--muted-strong); cursor: pointer;
+    font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.14em; padding: 0.55rem 0.8rem; align-self: flex-start;
+  }
+  .copy:hover { border-color: var(--accent-line); color: var(--accent); }
+  .hero-note { margin-top: 1rem; font-family: var(--mono); font-size: 0.72rem; color: var(--muted); }
+
+  /* sections */
+  section { padding: 4.5rem 0; border-top: 1px dashed var(--line); }
+  .sec-head { display: grid; grid-template-columns: 11rem 1fr; gap: 1.5rem; margin-bottom: 2.25rem; }
+  .sec-head h2 { font-size: clamp(1.8rem, 4vw, 2.5rem); line-height: 1.15; }
+  .sec-head p { margin: 0.9rem 0 0; max-width: 42rem; }
+  .sec-num { padding-top: 0.75rem; }
+  .sec-num .label { display: inline-block; white-space: nowrap; border-left: 2px solid var(--accent); padding-left: 0.6rem; }
+
+  /* screenshot */
+  .frame { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; box-shadow: 0 30px 60px -30px var(--shadow); }
+  .frame-bar { display: flex; justify-content: space-between; gap: 1rem; padding: 0.65rem 1rem; border-bottom: 1px solid var(--line); border-left: 2px solid var(--accent); }
+  .frame img { display: block; width: 100%; height: auto; }
+  .callout {
+    margin-top: 1.75rem; display: grid; grid-template-columns: auto 1fr; gap: 1.25rem; align-items: start;
+    padding: 1.4rem 1.5rem; background: var(--accent-soft); border: 1px solid var(--accent-line); border-radius: 4px;
+  }
+  .callout strong { color: var(--text); font-weight: 500; }
+  .callout p { margin: 0; }
+  .callout p + p { margin-top: 0.6rem; }
+  .pix { display: grid; grid-template-columns: repeat(2, 10px); gap: 2px; padding-top: 0.4rem; }
+  .pix i { width: 10px; height: 10px; display: block; }
+  .chips { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1.25rem; }
+  .chip { font-family: var(--mono); font-size: 0.72rem; color: var(--muted-strong); border: 1px solid var(--line); background: var(--tint); padding: 0.3rem 0.6rem; border-radius: 3px; }
+
+  /* steps */
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 1.75rem; }
+  .step { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 1.25rem; }
+  .step h3 { font-size: 1.25rem; margin: 0.6rem 0 0.4rem; }
+  .step p { margin: 0; font-size: 0.98rem; }
+
+  /* flow diagram */
+  .flow { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr; align-items: stretch; gap: 0.5rem; }
+  .node { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 1rem; }
+  .node .label { color: var(--accent); }
+  .node h3 { font-size: 1.15rem; margin: 0.35rem 0 0.3rem; }
+  .node p { margin: 0; font-size: 0.9rem; color: var(--muted-strong); }
+  .node.hl { border-color: var(--accent-line); background: var(--accent-soft); }
+  .arrow { align-self: center; font-family: var(--mono); color: var(--muted); font-size: 0.9rem; }
+  .flow-notes { list-style: none; padding: 0; margin: 2rem 0 0; display: grid; gap: 0.7rem; counter-reset: n; }
+  .flow-notes li { display: grid; grid-template-columns: 2.5rem 1fr; counter-increment: n; }
+  .flow-notes li::before { content: counter(n, decimal-leading-zero); font-family: var(--mono); font-size: 0.75rem; color: var(--accent); padding-top: 0.3rem; }
+
+  /* tables */
+  .table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; font-size: 0.98rem; }
+  .table th { text-align: left; font-family: var(--mono); font-weight: 400; font-size: 0.68rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); background: var(--tint); }
+  .table th, .table td { padding: 0.8rem 1rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .table tr:last-child td { border-bottom: 0; }
+  .table td:first-child { white-space: nowrap; }
+
+  /* terminal */
+  .term { margin-top: 1.5rem; background: var(--bg-deep); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+  .term-bar { padding: 0.6rem 1rem; border-bottom: 1px solid var(--line); border-left: 2px solid var(--accent); display: flex; justify-content: space-between; }
+  .term pre { margin: 0; padding: 1.1rem 1.2rem; overflow-x: auto; font-family: var(--mono); font-size: 0.8rem; line-height: 1.75; color: var(--muted-strong); }
+  .term .u { color: var(--text); }
+  .term .t { color: var(--accent); }
+  .term .d { color: var(--muted); }
+  .term .ok { color: var(--ok); }
+  .term .w { color: var(--warn); }
+
+  /* safety cards */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 1.25rem; position: relative; }
+  .card::before { content: ""; position: absolute; left: -1px; top: 1.3rem; width: 2px; height: 1.1rem; background: var(--c, var(--accent)); }
+  .card h3 { font-size: 1.2rem; margin-bottom: 0.4rem; }
+  .card p { margin: 0; font-size: 0.95rem; }
+  .card code, .step code, .table td:last-child code { overflow-wrap: anywhere; }
+
+  /* footer */
+  footer { border-top: 1px dashed var(--line); padding: 2.5rem 0 3.5rem; }
+  .foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem; align-items: center; }
+  .foot a { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; text-decoration: none; color: var(--muted-strong); margin-left: 1.1rem; }
+  .foot a:hover { color: var(--accent); }
+  .disclaimer { margin-top: 1rem; font-size: 0.85rem; color: var(--muted); }
+
+  @media (max-width: 860px) {
+    .flow { grid-template-columns: 1fr; }
+    .arrow { justify-self: center; transform: rotate(90deg); }
+    .steps { grid-template-columns: 1fr; }
+    .sec-head { grid-template-columns: 1fr; gap: 0.5rem; }
+    .sec-num { padding-top: 0; }
+  }
+  @media (max-width: 640px) {
+    .nav-links { display: none; }
+    .nav-inner { justify-content: space-between; }
+    .hero { padding-top: 3.5rem; }
+    .tab-panel { flex-direction: column; align-items: stretch; }
+    .copy { align-self: flex-end; }
+    .callout { grid-template-columns: 1fr; }
+    .table td:first-child { white-space: normal; }
+    .foot a { margin: 0 1.1rem 0 0; }
+    .frame-bar .label:last-child { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="mark" viewBox="0 0 8 8" shape-rendering="crispEdges">
+    <rect x="2" y="0" width="1" height="2" fill="#f09082"/>
+    <rect x="5" y="0" width="1" height="2" fill="#f09082"/>
+    <rect x="1" y="2" width="6" height="3" fill="#4d9abf"/>
+    <rect x="3" y="5" width="2" height="1" fill="#4d9abf"/>
+    <rect x="3" y="6" width="2" height="2" fill="#f1be58"/>
+  </symbol>
+</svg>
+
+<div class="wrap nav">
+  <nav class="nav-inner" aria-label="Primary">
+    <a class="nav-brand" href="#top"><svg aria-hidden="true"><use href="#mark"/></svg><span>Codex Connector</span></a>
+    <div class="nav-links">
+      <a href="#plugins">Plugins</a>
+      <a href="#how">How it works</a>
+      <a href="#tools">Tools</a>
+      <a href="#safety">Safety</a>
+      <a href="https://github.com/wileai/pi-codex-connectors">GitHub</a>
+    </div>
+    <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">[ THEME ]</button>
+  </nav>
+</div>
+
+<main id="top">
+  <header class="wrap hero">
+    <svg class="hero-mark" aria-hidden="true"><use href="#mark"/></svg>
+    <h1>Every Codex plugin,<br>now <em>inside Pi</em></h1>
+    <p class="lede">A Pi extension that lets any Pi model use every plugin you have connected in Codex: Gmail, GitHub, Slack, Linear, Figma, Google Drive, Calendar and the rest. Connect once in Codex. Use it everywhere in Pi.</p>
+
+    <div class="install" data-tabs>
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" aria-selected="true" aria-controls="t-install" id="tab-install">Pi install</button>
+        <button class="tab" role="tab" aria-selected="false" aria-controls="t-settings" id="tab-settings">settings.json</button>
+        <button class="tab" role="tab" aria-selected="false" aria-controls="t-update" id="tab-update">Update</button>
+      </div>
+      <div class="tab-panel" role="tabpanel" id="t-install" aria-labelledby="tab-install">
+        <pre><span class="p">$ </span>codex login
+<span class="p">$ </span>pi install npm:@wileai/pi-codex-connector</pre>
+        <button class="copy" type="button" data-copy="codex login&#10;pi install npm:@wileai/pi-codex-connector">[ COPY ]</button>
+      </div>
+      <div class="tab-panel" role="tabpanel" id="t-settings" aria-labelledby="tab-settings" hidden>
+        <pre>{
+  "packages": ["npm:@wileai/pi-codex-connector"]
+}</pre>
+        <button class="copy" type="button" data-copy='{&#10;  "packages": ["npm:@wileai/pi-codex-connector"]&#10;}'>[ COPY ]</button>
+      </div>
+      <div class="tab-panel" role="tabpanel" id="t-update" aria-labelledby="tab-update" hidden>
+        <pre><span class="p">$ </span>pi update npm:@wileai/pi-codex-connector</pre>
+        <button class="copy" type="button" data-copy="pi update npm:@wileai/pi-codex-connector">[ COPY ]</button>
+      </div>
+    </div>
+    <p class="hero-note">Requires Node.js 22.19+, Pi and the Codex CLI. Restart Pi after installing.</p>
+  </header>
+
+  <section id="plugins">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="sec-num"><span class="label">01 · Plugins</span></div>
+        <div>
+          <h2>If it's connected in Codex, <em>Pi can use it</em></h2>
+          <p>This is the Plugins page in Codex. Every plugin you connect here becomes available to Pi through this extension. No second login, no extra OAuth apps, no MCP servers to run.</p>
+        </div>
+      </div>
+
+      <figure class="frame" style="margin:0">
+        <div class="frame-bar"><span class="label">Codex · Customize › Plugins</span><span class="label">Source of truth</span></div>
+        <picture>
+          <source srcset="assets/codex-plugins.webp" type="image/webp">
+          <img src="assets/codex-plugins.png" width="2000" height="1091" alt="The Codex Plugins page, showing installed plugins such as Slack, Figma, Linear, Gmail, Google Calendar, Google Drive and GitHub, and a catalog of popular plugins.">
+        </picture>
+      </figure>
+
+      <div class="callout">
+        <div class="pix" aria-hidden="true"><i style="background:var(--coral)"></i><i style="background:var(--coral)"></i><i style="background:var(--blue)"></i><i style="background:var(--sun)"></i></div>
+        <div>
+          <p><strong>Any Codex plugin, from any Pi model.</strong> Install a plugin in Codex and its connector tools show up in Pi on the next discovery. Claude, Gemini, a local model: whichever model you run in Pi can search your Gmail, triage GitHub PRs or post to Slack through the plugins you already trust in Codex.</p>
+          <p>Codex keeps owning your login and every connector credential. Pi never sees a token. Pi gets the connector (app) tools of the plugins you connected; your local Codex MCP servers are left out.</p>
+        </div>
+      </div>
+
+      <div class="chips" aria-label="Examples of Codex plugins">
+        <span class="chip">Gmail</span><span class="chip">GitHub</span><span class="chip">Slack</span><span class="chip">Linear</span><span class="chip">Figma</span><span class="chip">Google Drive</span><span class="chip">Google Calendar</span><span class="chip">Notion</span><span class="chip">Canva</span><span class="chip">Supabase</span><span class="chip">Shopify</span><span class="chip">Granola</span><span class="chip">+ every plugin you connect</span>
+      </div>
+
+      <div class="steps">
+        <div class="step"><span class="label">Step 01</span><h3>Connect in Codex</h3><p>Open Codex › Customize › Plugins and add the plugins you want. Sign in to each one there.</p></div>
+        <div class="step"><span class="label">Step 02</span><h3>Install in Pi</h3><p>Run <code>codex login</code>, then <code>pi install npm:@wileai/pi-codex-connector</code> and restart Pi.</p></div>
+        <div class="step"><span class="label">Step 03</span><h3>Just ask</h3><p>"Summarize my unread Gmail from today." Pi finds the right plugin tool, checks its schema and calls it.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="how">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="sec-num"><span class="label">02 · How it works</span></div>
+        <div>
+          <h2>Codex as a <em>connector host</em>, not a model</h2>
+          <p>The extension talks to the local Codex app-server over stdio. It never starts a Codex model turn, so plugin calls cost no Codex tokens.</p>
+        </div>
+      </div>
+
+      <div class="flow">
+        <div class="node"><span class="label">Your model</span><h3>Pi</h3><p>Any provider or local model you run in Pi.</p></div>
+        <div class="arrow" aria-hidden="true">──›</div>
+        <div class="node hl"><span class="label">This extension</span><h3>Codex Connector</h3><p>Three tools, consent and write approvals.</p></div>
+        <div class="arrow" aria-hidden="true">──›</div>
+        <div class="node"><span class="label">stdio</span><h3>codex app-server</h3><p>Ephemeral, model-free thread. Apps feature only.</p></div>
+        <div class="arrow" aria-hidden="true">──›</div>
+        <div class="node"><span class="label">Your account</span><h3>Codex plugins</h3><p>Gmail, GitHub, Slack, Linear, Figma…</p></div>
+      </div>
+
+      <ol class="flow-notes">
+        <li><span>On first use, starts <code>codex app-server</code>. Codex keeps owning your login and connector credentials.</span></li>
+        <li><span>Opens an ephemeral, model-free Codex thread with only the apps feature on. Your own Codex MCP servers stay off.</span></li>
+        <li><span><code>app/installed</code> and <code>mcpServerStatus/list</code> build the catalog of your connected plugins and their tools.</span></li>
+        <li><span>Tools run through <code>mcpServer/tool/call</code>. Results go straight back to your Pi model.</span></li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="tools">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="sec-num"><span class="label">03 · Tools</span></div>
+        <div>
+          <h2>Three tools <em>instead of hundreds</em></h2>
+          <p>Connected plugins can expose hundreds of tool schemas. Loading them all would flood the context window, so the model gets three small tools and discovers the rest on demand.</p>
+        </div>
+      </div>
+
+      <table class="table">
+        <thead><tr><th>Tool</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>codex_connectors</code></td><td>List connected plugins. With <code>connector</code> or <code>query</code>, list the matching tools.</td></tr>
+          <tr><td><code>codex_connector_schema</code></td><td>Full description and input schema of one tool.</td></tr>
+          <tr><td><code>codex_connector_call</code></td><td>Run a tool with JSON arguments.</td></tr>
+          <tr><td><code>/codex-connectors</code></td><td>Slash command that shows the catalog. Add <code>refresh</code> to rediscover after connecting a new plugin.</td></tr>
+        </tbody>
+      </table>
+
+      <div class="term" role="img" aria-label="Example Pi session using the extension">
+        <div class="term-bar"><span class="label">Pi · illustrative session</span><span class="label">● ● ●</span></div>
+<pre><span class="u">› What did the team ship in GitHub this week? Post a summary to #eng in Slack.</span>
+
+<span class="t">codex_connectors</span> <span class="d">{ "connector": "GitHub", "query": "pull requests" }</span>
+  <span class="d">GitHub · 4 matching tools</span>
+<span class="t">codex_connector_schema</span> <span class="d">{ "tool": "github.search_prs" }</span>
+<span class="t">codex_connector_call</span> <span class="d">{ "tool": "github.search_prs", "arguments": { … } }</span>
+  <span class="ok">✓ 12 merged pull requests</span>
+<span class="t">codex_connector_call</span> <span class="d">{ "tool": "slack.send_message", "arguments": { … } }</span>
+  <span class="w">? Allow write: Slack · slack.send_message</span>  <span class="d">[ yes / no ]</span>
+  <span class="ok">✓ Posted to #eng</span></pre>
+      </div>
+    </div>
+  </section>
+
+  <section id="safety">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="sec-num"><span class="label">04 · Safety</span></div>
+        <div>
+          <h2>Your data, <em>your call</em></h2>
+          <p>Connector names, schemas and results enter the selected Pi model's context, so the extension asks before it looks and asks again before it writes.</p>
+        </div>
+      </div>
+
+      <div class="cards">
+        <div class="card" style="--c:var(--coral)"><h3>Session consent</h3><p>Asks before discovering any plugin. Headless runs must set <code>PI_CODEX_CONNECTORS_DATA=allow</code>.</p></div>
+        <div class="card" style="--c:var(--blue)"><h3>Write approvals</h3><p>Tools not marked read-only open a confirm dialog in the TUI. Destructive tools always need approval.</p></div>
+        <div class="card" style="--c:var(--sun)"><h3>Allowlist</h3><p>Limit discovery and calls to named plugins, e.g. <code>PI_CODEX_CONNECTORS_ALLOW=GitHub,Slack</code>.</p></div>
+        <div class="card" style="--c:var(--coral)"><h3>Credentials stay in Codex</h3><p>Pi never reads tokens. Raw app-server diagnostics are withheld and never written to disk.</p></div>
+        <div class="card" style="--c:var(--blue)"><h3>No silent retries</h3><p>An aborted or timed-out write reports an unknown outcome and blocks further writes until you check.</p></div>
+        <div class="card" style="--c:var(--sun)"><h3>Bounded results</h3><p>Large results are truncated in memory, never saved. Narrow the query or paginate for more.</p></div>
+      </div>
+
+      <h3 style="font-size:1.4rem;margin:3rem 0 1rem">Configuration</h3>
+      <table class="table">
+        <thead><tr><th>Variable</th><th>Values</th></tr></thead>
+        <tbody>
+          <tr><td><code>PI_CODEX_CONNECTORS_WRITES</code></td><td><code>ask</code> (default): confirm in the TUI, deny without UI · <code>allow</code>: run without asking · <code>deny</code>: never run</td></tr>
+          <tr><td><code>PI_CODEX_CONNECTORS_DATA</code></td><td><code>allow</code> or <code>deny</code> plugin data access without the consent prompt</td></tr>
+          <tr><td><code>PI_CODEX_CONNECTORS_ALLOW</code></td><td>Comma-separated plugin names or IDs. Empty exposes none; unset exposes all enabled ones.</td></tr>
+          <tr><td><code>PI_CODEX_CONNECTORS_CODEX</code></td><td>Path to the Codex executable (default: <code>codex</code> on <code>PATH</code>)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <a class="nav-brand" href="#top" style="margin:0"><svg aria-hidden="true"><use href="#mark"/></svg><span>Codex Connector · MIT</span></a>
+      <div>
+        <a href="https://github.com/wileai/pi-codex-connectors">GitHub</a>
+        <a href="https://www.npmjs.com/package/@wileai/pi-codex-connector">npm</a>
+        <a href="https://pi.dev/packages">Pi packages</a>
+        <a href="https://pi.dev">pi.dev</a>
+      </div>
+    </div>
+    <p class="disclaimer">Community extension for Pi by wileai. Not affiliated with or endorsed by the Pi project or OpenAI. Codex and ChatGPT are trademarks of OpenAI.</p>
+  </div>
+</footer>
+
+<script>
+  document.querySelectorAll("[data-tabs]").forEach((root) => {
+    const tabs = [...root.querySelectorAll("[role=tab]")];
+    tabs.forEach((tab) => tab.addEventListener("click", () => {
+      tabs.forEach((t) => {
+        const on = t === tab;
+        t.setAttribute("aria-selected", String(on));
+        document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
+      });
+    }));
+  });
+  document.querySelectorAll("[data-copy]").forEach((btn) => btn.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(btn.dataset.copy); btn.textContent = "[ COPIED ]"; }
+    catch { btn.textContent = "[ FAILED ]"; }
+    setTimeout(() => { btn.textContent = "[ COPY ]"; }, 1600);
+  }));
+  document.querySelector("[data-theme-toggle]").addEventListener("click", () => {
+    const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    document.documentElement.style.colorScheme = next;
+    try { localStorage.setItem("pcc:theme", next); } catch {}
+  });
+</script>
+</body>
+</html>
