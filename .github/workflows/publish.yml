@@ -1,5 +1,6 @@
 name: Publish npm release
 on:
+  workflow_dispatch: # Validate release permissions without publishing.
   release:
     types: [published]
 permissions:
@@ -8,8 +9,24 @@ concurrency:
   group: npm-publish
   cancel-in-progress: false
 jobs:
-  publish:
+  authorize:
     if: github.repository == 'wileai/pi-codex-connectors'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require repository administrator
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for actor in "$GITHUB_ACTOR" "$GITHUB_TRIGGERING_ACTOR"; do
+            permission=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$actor/permission" --jq '.permission')
+            if [ "$permission" != "admin" ]; then
+              echo "::error::Only repository administrators may publish npm releases."
+              exit 1
+            fi
+          done
+  publish:
+    needs: authorize
+    if: github.event_name == 'release' && github.repository == 'wileai/pi-codex-connectors'
     runs-on: ubuntu-latest
     permissions:
       contents: read

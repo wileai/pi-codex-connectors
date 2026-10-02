@@ -2,6 +2,8 @@
 
 Pi extension: use every Codex (ChatGPT) connector you have connected — GitHub, Gmail, Google Calendar/Drive, Slack, Linear, Figma, ... — from any pi model.
 
+Website: https://wileai.github.io/pi-codex-connectors/
+
 ## How it works
 
 1. Starts `codex app-server` (stdio) on first use. Codex keeps owning your login and connector credentials.
