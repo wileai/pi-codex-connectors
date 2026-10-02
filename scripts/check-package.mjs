@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 const pkg = JSON.parse(readFileSync("package.json", "utf8"));
-assert.equal(pkg.name, "pi-codex-connectors");
+assert.equal(pkg.name, "@wileai/pi-codex-connector");
 assert.ok(pkg.keywords.includes("pi-package"));
 assert.deepEqual(pkg.pi.extensions, ["./src/index.ts"]);
 const tag = process.env.RELEASE_TAG;

@@ -1,4 +1,4 @@
-# pi-codex-connectors
+# @wileai/pi-codex-connector
 
 Pi extension: use every Codex (ChatGPT) connector you have connected — GitHub, Gmail, Google Calendar/Drive, Slack, Linear, Figma, ... — from any pi model.
 
@@ -31,7 +31,7 @@ Tools not annotated read-only need approval. `PI_CODEX_CONNECTORS_WRITES`:
 
 ```bash
 codex login            # ChatGPT account with connectors connected
-pi install npm:pi-codex-connectors
+pi install npm:@wileai/pi-codex-connector
 ```
 
 Requires Node.js 22.19+ and Pi. This package is a Pi extension, not a standalone MCP server; other harnesses must support loading Pi extensions.
@@ -40,24 +40,29 @@ Alternatively, add the package to the existing `packages` array in `~/.pi/agent/
 
 ```json
 {
-  "packages": ["npm:pi-codex-connectors"]
+  "packages": ["npm:@wileai/pi-codex-connector"]
 }
 ```
 
 Project settings require Pi project trust. Restart Pi after installation or updating.
 
 ```bash
-pi update npm:pi-codex-connectors  # update this extension
+pi update npm:@wileai/pi-codex-connector  # update this extension
 pi update --extensions            # update all packages on current Pi
 ```
 
-Keep the npm source unversioned to receive stable updates. An explicit version such as `npm:pi-codex-connectors@0.1.0` stays pinned. Releases become available through npm; users choose when to update.
+Keep the npm source unversioned to receive stable updates. An explicit version such as `npm:@wileai/pi-codex-connector@0.1.1` stays pinned. Releases become available through npm; users choose when to update.
 
-Until the first npm publication, install directly from the public repository:
+### Migrating from the original npm name
+
+The package is now `@wileai/pi-codex-connector`. Existing installs of the old name need a one-time migration:
 
 ```bash
-pi install git:github.com/wileai/pi-codex-connectors
+pi remove npm:pi-codex-connectors
+pi install npm:@wileai/pi-codex-connector
 ```
+
+Use `--local` on both commands for a project-local installation. Restart Pi afterward. Future updates use `pi update npm:@wileai/pi-codex-connector`.
 
 `PI_CODEX_CONNECTORS_CODEX` overrides the Codex executable.
 

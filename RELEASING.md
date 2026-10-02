@@ -2,10 +2,10 @@
 
 ## First publication
 
-1. Add a granular npm token with permission to publish `pi-codex-connectors` as the repository Actions secret `NPM_TOKEN`: https://github.com/wileai/pi-codex-connectors/settings/secrets/actions/new. Enable bypass 2FA for unattended publication if required by the account. Never put the token in source, an issue, or chat.
+1. Add a granular npm token with permission to publish `@wileai/pi-codex-connector` in the `@wileai` scope as the repository Actions secret `NPM_TOKEN`: https://github.com/wileai/pi-codex-connectors/settings/secrets/actions/new. Enable bypass 2FA for unattended publication if required by the account. Never put the token in source, an issue, or chat.
 2. Alternatively run `gh secret set NPM_TOKEN --repo wileai/pi-codex-connectors` and paste at its hidden prompt.
-3. Merge the release workflow and package metadata into `main`. Complete the checks below, then publish a GitHub release tagged `v0.1.0` from that commit. The workflow publishes the first npm version.
-4. Verify `npm view pi-codex-connectors version dist-tags repository` and install with `pi install npm:pi-codex-connectors` in a clean Pi profile. Check https://pi.dev/packages?name=pi-codex-connectors after npm indexing; eligibility does not guarantee immediate listing.
+3. Merge the release workflow and package metadata into `main`. Complete the checks below, then publish a GitHub release tagged `v0.1.1` from that commit. The workflow publishes the first npm version.
+4. Verify `npm view @wileai/pi-codex-connector version dist-tags repository` and install with `pi install npm:@wileai/pi-codex-connector` in a clean Pi profile. Check https://pi.dev/packages?name=%40wileai%2Fpi-codex-connector after npm indexing; eligibility does not guarantee immediate listing.
 
 ## Tokenless subsequent releases
 
@@ -27,4 +27,4 @@ The workflow has OIDC permission and a supported npm version. Verify a subsequen
 3. Create and publish a GitHub release with a tag exactly matching `v<package.json version>` on that commit. A draft does not publish to npm. For prereleases, use a version such as `0.2.0-beta.1` and check GitHub's prerelease checkbox; those publish to `next`, leaving `latest` unchanged.
 4. Confirm the publish workflow succeeded and the npm version is available. A failed workflow is not a published release. Fix a credentials-only failure and rerun the failed job; if package contents must change, publish a new version and release.
 
-Users with the unpinned source `npm:pi-codex-connectors` run `pi update npm:pi-codex-connectors` (or `pi update --extensions` on current Pi), then restart Pi. Pinned versions stay pinned. npm publication makes updates available; it does not push code into running sessions.
+Users with the unpinned source `npm:@wileai/pi-codex-connector` run `pi update npm:@wileai/pi-codex-connector` (or `pi update --extensions` on current Pi), then restart Pi. Pinned versions stay pinned. npm publication makes updates available; it does not push code into running sessions.
