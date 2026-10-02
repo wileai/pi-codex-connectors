@@ -1,0 +1,43 @@
+name: Publish npm release
+on:
+  release:
+    types: [published]
+permissions:
+  contents: read
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'wileai/pi-codex-connectors'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - run: npm install --global npm@11.12.1 --ignore-scripts
+      - run: make setup
+      - run: npm run check
+      - run: npm audit --omit=dev
+      - run: npm run check:package
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+      - name: Publish stable or prerelease
+        run: |
+          if [ "$PRERELEASE" = "true" ]; then
+            npm publish --access public --provenance --ignore-scripts --tag next
+          else
+            npm publish --access public --provenance --ignore-scripts --tag latest
+          fi
+        env:
+          PRERELEASE: ${{ github.event.release.prerelease }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

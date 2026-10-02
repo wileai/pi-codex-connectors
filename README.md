@@ -31,7 +31,32 @@ Tools not annotated read-only need approval. `PI_CODEX_CONNECTORS_WRITES`:
 
 ```bash
 codex login            # ChatGPT account with connectors connected
-pi install /path/to/pi-codex-connectors
+pi install npm:pi-codex-connectors
+```
+
+Requires Node.js 22.19+ and Pi. This package is a Pi extension, not a standalone MCP server; other harnesses must support loading Pi extensions.
+
+Alternatively, add the package to the existing `packages` array in `~/.pi/agent/settings.json` (personal) or `.pi/settings.json` (project):
+
+```json
+{
+  "packages": ["npm:pi-codex-connectors"]
+}
+```
+
+Project settings require Pi project trust. Restart Pi after installation or updating.
+
+```bash
+pi update npm:pi-codex-connectors  # update this extension
+pi update --extensions            # update all packages on current Pi
+```
+
+Keep the npm source unversioned to receive stable updates. An explicit version such as `npm:pi-codex-connectors@0.1.0` stays pinned. Releases become available through npm; users choose when to update.
+
+Until the first npm publication, install directly from the public repository:
+
+```bash
+pi install git:github.com/wileai/pi-codex-connectors
 ```
 
 `PI_CODEX_CONNECTORS_CODEX` overrides the Codex executable.
@@ -66,9 +91,9 @@ The app-server protocol has no per-call cancellation method for connector calls.
 
 ## Publishing
 
-Run typechecking, live scenarios, `npm audit`, secret scanning and `npm pack --dry-run` before release. The package contains only source, README, license and package metadata. Publish a sanitized snapshot in a new repository when existing Git history contains private metadata; a cleanup commit does not remove historical disclosures.
+See [RELEASING.md](https://github.com/wileai/pi-codex-connectors/blob/main/RELEASING.md) for initial npm setup and the release checklist. Publishing a GitHub release triggers `.github/workflows/publish.yml`: it checks the release version, typechecks, audits runtime dependencies, verifies the package contents, and publishes with provenance. Stable releases use npm's `latest` tag; prereleases use `next`.
 
-Before publishing, confirm that every contributor has the right to release their contributions. Export only the reviewed source, tests, build files and license into a new directory; exclude `.git`, local configuration, logs, audit reports and dependency directories. Review and scan that export, then initialize a fresh repository using an approved public author identity. Keep the original repository private. This avoids rewriting or force-pushing its history.
+The `pi-package` keyword and `pi.extensions` manifest make the published package eligible for the [Pi package catalog](https://pi.dev/packages). Catalog indexing is external and may lag publication.
 
 The extension has no runtime import of Pi's SDK; Pi SDK peer dependencies are optional type contracts. Keep your separately installed Pi host patched. Development setup explicitly patches Pi's upstream shrinkwrapped `brace-expansion` to 5.0.12. `make check` verifies the actual resolved version, because the root lockfile audit alone can miss the upstream shrinkwrap. Re-run `make setup` after any clean install.
 

@@ -34,10 +34,22 @@ interface PiRun {
 	appServers: number[];
 }
 
-function appServerPids(): Set<number> {
+function appServerPids(rootPid: number): Set<number> {
 	try {
 		const out = execFileSync("pgrep", ["-f", "app-server --listen stdio://"], { encoding: "utf8" });
-		return new Set(out.split("\n").filter(Boolean).map(Number));
+		const parents = new Map(execFileSync("ps", ["-axo", "pid=,ppid="], { encoding: "utf8" })
+			.trim().split("\n").map((line) => {
+				const [pid, parent] = line.trim().split(/\s+/).map(Number);
+				return [pid!, parent!] as const;
+			}));
+		return new Set(out.split("\n").filter(Boolean).map(Number).filter((pid) => {
+			const visited = new Set<number>();
+			for (let parent = parents.get(pid); parent && !visited.has(parent); parent = parents.get(parent)) {
+				if (parent === rootPid) return true;
+				visited.add(parent);
+			}
+			return false;
+		}));
 	} catch {
 		return new Set();
 	}
@@ -58,7 +70,6 @@ function textOf(message: NonNullable<PiEvent["message"]>): string {
 }
 
 function runPi(script: string, env: Record<string, string> = {}): Promise<PiRun> {
-	const before = appServerPids();
 	const child = spawn(
 		process.env.PI_BIN ?? "pi",
 		[
@@ -100,7 +111,8 @@ function runPi(script: string, env: Record<string, string> = {}): Promise<PiRun>
 				try { event = JSON.parse(line) as PiEvent; } catch { invalidOutput = true; child.kill("SIGTERM"); return; }
 				events.push(event);
 				if (event.type === "message_end" && event.message?.role === "toolResult") {
-					for (const pid of appServerPids()) if (!before.has(pid)) seen.add(pid);
+					// Other Codex sessions may start app-servers concurrently; only track this Pi process.
+					for (const pid of appServerPids(child.pid!)) seen.add(pid);
 				}
 			}
 			newline = buffer.indexOf("\n");
