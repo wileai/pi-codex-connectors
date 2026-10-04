@@ -12,7 +12,7 @@ test:
 	$(MAKE) -C integration test
 
 test-web-search:
-	node --test --test-concurrency=1 integration/web-search.test.ts
+	node --test --test-concurrency=1 integration/web-search.test.ts integration/permissions.test.ts
 	$(MAKE) -C integration test-web-search-policy
 
 test-web-search-live:

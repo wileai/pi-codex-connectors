@@ -2,6 +2,7 @@ import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateOutput } from "./output.ts";
 import { registerWebSearch } from "./web-search-extension.ts";
+import { hasPermissionOverride, permissionPolicy, registerPermissions, savePermissions } from "./permissions.ts";
 import { Type } from "typebox";
 import {
 	CodexConnectors,
@@ -25,9 +26,8 @@ import {
 const MAX_LISTED_TOOLS = 80;
 const DESCRIPTION_PREVIEW = 160;
 
-type WritePolicy = "ask" | "allow" | "deny";
-
 export default function codexConnectorsExtension(pi: ExtensionAPI) {
+	registerPermissions(pi);
 	registerWebSearch(pi);
 	let connectors: CodexConnectors | undefined;
 	// Elicitations arrive on the app-server channel, not on a tool call; answer with the latest UI.
@@ -36,20 +36,22 @@ export default function codexConnectorsExtension(pi: ExtensionAPI) {
 	let dataApproval: Promise<void> | undefined;
 	let sessionGeneration = 0;
 	const approveData = async (ctx: ExtensionContext) => {
-		const policy = process.env.PI_CODEX_CONNECTORS_DATA;
-		if (policy === "deny") throw new Error("Connector data access denied by PI_CODEX_CONNECTORS_DATA=deny.");
+		const policy = permissionPolicy("connectors");
+		if (policy === "deny") throw new Error("Connector data access denied by saved permissions or PI_CODEX_CONNECTORS_DATA=deny.");
+		if (policy === "allow") return;
 		if (dataApproved) return;
 		if (!dataApproval) {
 			const generation = sessionGeneration;
 			dataApproval = (async () => {
-				if (policy !== "allow") {
-					if (!ctx.hasUI) throw new Error("Connector data needs consent. Set PI_CODEX_CONNECTORS_DATA=allow to share connector results with the selected model.");
-					if (!await ctx.ui.confirm("Share connector data with this Pi session?", "Connected app names, schemas and results will enter the selected model's context and may be retained by Pi or its model provider. Read calls can retrieve private data. Continue only with a trusted model.")) {
-						throw new Error("Connector data access declined.");
-					}
+				if (!ctx.hasUI) throw new Error("Connector data needs consent. Save /codex-permissions connectors allow once, or set PI_CODEX_CONNECTORS_DATA=allow.");
+				if (!await ctx.ui.confirm("Always allow connector data for this Pi user?", "Connected app names, schemas and results enter the selected model's context. This approval is saved across sessions, projects and model changes. Change it with /codex-permissions connectors ask. Explicit environment settings take precedence.")) {
+					throw new Error("Connector data access declined.");
 				}
 				if (generation !== sessionGeneration) throw new Error("Session changed during connector consent. Try again in the current session.");
-				dataApproved = true;
+				if (permissionPolicy("connectors") !== policy) throw new Error("Connector permissions changed during consent. Try again.");
+				savePermissions({ connectors: "allow" });
+				// An explicit ask environment override retains the original once-per-session behavior.
+				dataApproved = hasPermissionOverride("connectors");
 			})();
 		}
 		const pending = dataApproval;
@@ -198,12 +200,12 @@ async function requireTool(service: CodexConnectors, name: string): Promise<Conn
 }
 
 async function approveWrite(tool: ConnectorTool, args: Record<string, unknown>, ctx: ExtensionContext): Promise<void> {
-	const policy = writePolicy();
+	const policy = permissionPolicy("writes");
 	if (policy === "allow") return;
 	const denied = `${tool.name} can change data in ${tool.connectorName}`;
-	if (policy === "deny") throw new Error(`${denied}; blocked by PI_CODEX_CONNECTORS_WRITES=deny.`);
+	if (policy === "deny") throw new Error(`${denied}; blocked by PI_CODEX_CONNECTORS_WRITES=deny or saved write permissions.`);
 	if (!ctx.hasUI) {
-		throw new Error(`${denied}; no UI is available to approve it. Set PI_CODEX_CONNECTORS_WRITES=allow to permit it.`);
+		throw new Error(`${denied}; no UI is available to approve it. Save /codex-permissions writes allow once, or set PI_CODEX_CONNECTORS_WRITES=allow.`);
 	}
 	const serialized = JSON.stringify(args, null, 2);
 	if (serialized.length > 2000) {
@@ -216,24 +218,22 @@ async function approveWrite(tool: ConnectorTool, args: Record<string, unknown>, 
 	if (!approved) throw new Error(`The user declined ${tool.name}.`);
 }
 
-function writePolicy(): WritePolicy {
-	const value = process.env.PI_CODEX_CONNECTORS_WRITES;
-	return value === "allow" || value === "deny" ? value : "ask";
-}
-
 async function elicit(ctx: ExtensionContext | undefined, request: ElicitationRequest): Promise<ElicitationResponse> {
 	const decline: ElicitationResponse = { action: "decline", content: null, _meta: null };
-	if (!ctx?.hasUI) return decline;
 	if (request.mode === "url") {
-		ctx.ui.notify(`${request.message}\n${request.url ?? ""}`, "warning");
+		if (ctx?.hasUI) ctx.ui.notify(`${request.message}\n${request.url ?? ""}`, "warning");
 		return decline;
 	}
 	// Only confirmation forms (no fields to fill) can be answered with a yes/no dialog.
 	const schema = request.requestedSchema as { properties?: Record<string, unknown> } | undefined;
 	if (schema?.properties && Object.keys(schema.properties).length > 0) {
-		ctx.ui.notify(`Codex connector asked for input pi cannot collect: ${request.message}`, "warning");
+		if (ctx?.hasUI) ctx.ui.notify(`Codex connector asked for input pi cannot collect: ${request.message}`, "warning");
 		return decline;
 	}
+	const policy = permissionPolicy("writes");
+	if (policy === "deny") return decline;
+	if (policy === "allow") return { action: "accept", content: {}, _meta: null };
+	if (!ctx?.hasUI) return decline;
 	const accepted = await ctx.ui.confirm("Codex connector", request.message);
 	return accepted ? { action: "accept", content: {}, _meta: null } : decline;
 }

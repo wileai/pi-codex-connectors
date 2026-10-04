@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Type } from "typebox";
 import { truncateOutput } from "./output.ts";
 import { CodexWebSearch, searchMode, type SearchMode } from "./web-search.ts";
+import { hasPermissionOverride, permissionPolicy, savePermissions } from "./permissions.ts";
 
 export function registerWebSearch(pi: ExtensionAPI) {
 	let service: CodexWebSearch | undefined;
@@ -22,20 +23,22 @@ export function registerWebSearch(pi: ExtensionAPI) {
 	pi.on("session_shutdown", reset);
 
 	const consent = async (ctx: ExtensionContext) => {
-		if (process.env.PI_CODEX_WEB_SEARCH_DATA === "deny") throw new Error("Web search data access denied by PI_CODEX_WEB_SEARCH_DATA=deny.");
+		const policy = permissionPolicy("web");
+		if (policy === "deny") throw new Error("Web search data access denied by saved permissions or PI_CODEX_WEB_SEARCH_DATA=deny.");
+		if (policy === "allow") return;
 		if (approved) return;
 		if (!approval) {
 			const current = generation;
 			approval = (async () => {
-				if (process.env.PI_CODEX_WEB_SEARCH_DATA !== "allow") {
-					if (!ctx.hasUI) throw new Error("Web search needs consent. Set PI_CODEX_WEB_SEARCH_DATA=allow to send queries to OpenAI and share results with the selected Pi model.");
-					if (!await ctx.ui.confirm("Enable Codex web search for this Pi session?",
-						`Maximum access: ${mode()}. Queries and requested URLs go to OpenAI; search results enter the selected Pi model's context. This extension obtains your Codex access token in memory for the direct search request. No Codex model turn or conversation history is sent.`)) {
-						throw new Error("Web search access declined.");
-					}
+				if (!ctx.hasUI) throw new Error("Web search needs consent. Save /codex-permissions web allow once, or set PI_CODEX_WEB_SEARCH_DATA=allow.");
+				if (!await ctx.ui.confirm("Always allow web search for this Pi user?",
+					`Queries and requested URLs go to OpenAI; results enter the selected Pi model's context. Your Codex token is used in memory for direct retrieval. This approval is saved across sessions, model changes and search modes. Change it with /codex-permissions web ask. Explicit environment settings take precedence.`)) {
+					throw new Error("Web search access declined.");
 				}
 				if (current !== generation) throw new Error("Session or search mode changed during consent. Try again.");
-				approved = true;
+				if (permissionPolicy("web") !== policy) throw new Error("Web permissions changed during consent. Try again.");
+				savePermissions({ web: "allow" });
+				approved = hasPermissionOverride("web");
 			})();
 		}
 		const pending = approval;
@@ -94,7 +97,7 @@ export function registerWebSearch(pi: ExtensionAPI) {
 					selectedMode = requested;
 					await reset();
 				}
-				ctx.ui.notify(`Codex web search: ${mode()}. Change with /codex-web-search disabled|cached|indexed|live. Changing mode resets result references and consent.`, "info");
+				ctx.ui.notify(`Codex web search: ${mode()}. Change with /codex-web-search disabled|cached|indexed|live. Changing mode resets result references; saved permissions are retained.`, "info");
 			} catch (error) {
 				ctx.ui.notify(error instanceof Error ? error.message : "Could not set web search mode.", "error");
 			}

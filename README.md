@@ -40,7 +40,7 @@ Set the initial maximum with `PI_CODEX_WEB_SEARCH_MODE`, or change it for this P
 | `indexed` | External access gated by the search index; `external_web_access: "indexed"` |
 | `live` | Live retrieval; `external_web_access: true` |
 
-The tool's optional `mode` can narrow this maximum, never exceed it. For example, a session set to `indexed` rejects a tool request for `live`. Only the user command or startup environment selects broader access. Changing modes clears result references and requires fresh consent.
+The tool's optional `mode` can narrow this maximum, never exceed it. For example, a session set to `indexed` rejects a tool request for `live`. Only the user command or startup environment selects broader access. Changing modes clears result references but retains saved permissions.
 
 These are hosted retrieval modes, **not local shell sandbox permissions**. They do not grant access to local files, a signed-in browser, or arbitrary shell commands. The extension has its own mode setting; it does not inherit Codex's `web_search` config or local command network rules. `allowed_domains` is a backend search filter, not a local network firewall. See [OpenAI's web search documentation](https://learn.chatgpt.com/docs/web-search) and the [Codex mode mapping](https://github.com/openai/codex/blob/main/codex-rs/ext/web-search/src/extension.rs).
 
@@ -66,7 +66,7 @@ At least one of `search_query`, `open`, `find`, or `click` is required. Each acc
 
 Use actual `ref_id` and link IDs returned by the previous call, or a URL for `open`/`find`. References last for the current Pi session and search mode. A resumed or switched session starts fresh. `response_length` accepts `short` (default), `medium`, or `long`. Queries can include `recency` in days; `allowed_domains` applies a backend domain filter to the request. Cite the returned source URLs in answers.
 
-Search has separate session consent: `PI_CODEX_WEB_SEARCH_DATA=ask` (default), `allow`, or `deny`. Headless use requires `allow`. Queries and requested URLs go to OpenAI, and results enter the selected Pi model's context. Conversation history is not sent. Results are bounded in memory; tokens, encrypted payloads, and raw error bodies are excluded from tool results. Returned web content remains untrusted.
+Search consent is remembered for the Pi user. Accept the initial prompt once, or use `/codex-permissions web allow`. Headless use accepts saved approval or `PI_CODEX_WEB_SEARCH_DATA=allow`. Queries and requested URLs go to OpenAI, and results enter the selected Pi model's context. Conversation history is not sent. Results are bounded in memory; tokens, encrypted payloads, and raw error bodies are excluded from tool results. Returned web content remains untrusted.
 
 `PI_CODEX_WEB_SEARCH_MODEL` overrides the endpoint's routing field (default `gpt-5.4`); it does not select the Pi model. On authentication failure, renew your login with `codex login`. The extension never changes your login automatically.
 
@@ -78,11 +78,34 @@ From the checkout containing this change:
 PI_CODEX_WEB_SEARCH_MODE=indexed pi --no-extensions --extension ./src/index.ts
 ```
 
-This loads the checkout for one run, avoiding duplicate tools from an installed version. Accept the search consent prompt, then ask: “Use codex_web_search to find Codex web search documentation, open a result, and cite its URL.” Use `/codex-web-search live` to try live retrieval. No npm installation or settings change is needed.
+This loads the checkout for one run, avoiding duplicate tools from an installed version. Accept the search consent prompt once, then ask: “Use codex_web_search to find Codex web search documentation, open a result, and cite its URL.” Use `/codex-web-search live` to try live retrieval. No npm installation is needed; accepting consent saves your permission choice.
+
+## Remember permissions for the whole extension
+
+Run once in Pi to stop extension approval prompts, **including connected-app writes**:
+
+```text
+/codex-permissions all allow
+```
+
+The choice survives restarts, new sessions, projects, model changes, and search-mode changes for the same Pi user directory. To restore prompts, run `/codex-permissions all ask`; to block access, use `/codex-permissions all deny`. Run `/codex-permissions` without arguments to show effective policies.
+
+More selective choices are available:
+
+```text
+/codex-permissions data allow
+/codex-permissions writes ask
+```
+
+`data` covers connector data and web search. Individual scopes are `connectors`, `web`, and `writes`; each accepts `allow`, `ask`, or `deny`. Accepting a data-consent dialog automatically remembers that scope; approving an individual write does not silently authorize future writes. Saved `writes: allow` also accepts connector confirmation forms that require no additional input. Provider login flows and forms requiring input still need the provider's normal interaction.
+
+Only these policy values are saved to `~/.pi/agent/codex-connectors-permissions.json` (or the directory selected by `PI_CODING_AGENT_DIR`). The file contains no tokens, queries, or results. It is written atomically with owner-only permissions. No project-local permission file is read.
+
+Explicit `PI_CODEX_CONNECTORS_DATA`, `PI_CODEX_WEB_SEARCH_DATA`, and `PI_CODEX_CONNECTORS_WRITES` environment values override saved preferences. `ask` retains session data-consent prompts or per-action write prompts; `deny` blocks access. Unset an override to use your saved choice. Missing preferences default to `ask`. Permission changes apply to subsequent calls; they cannot undo a request already sent.
 
 ## Writes
 
-Tools not annotated read-only need approval. `PI_CODEX_CONNECTORS_WRITES`:
+Tools not annotated read-only follow the saved `writes` policy or the `PI_CODEX_CONNECTORS_WRITES` override:
 
 - `ask` (default): confirm dialog in the TUI; denied when there is no UI (print/JSON mode)
 - `allow`: run without asking
@@ -145,11 +168,11 @@ make test-web-search-live  # real retrieval + real Pi scenarios; requires codex 
 
 Connector names, schemas and results enter the selected Pi model's context. Pi and the model provider may retain them. Codex owning credentials does not keep connector results within Codex.
 
-Before discovery, the extension asks for session consent. Headless runs must explicitly set `PI_CODEX_CONNECTORS_DATA=allow`; `deny` blocks access. Concurrent discovery shares one consent prompt. Session changes close the previous connector process and require fresh consent. Consent covers the session, including model changes: use only trusted models throughout it.
+Before discovery, the extension checks saved user consent or the environment override. Headless runs use saved approval or `PI_CODEX_CONNECTORS_DATA=allow`; `deny` blocks access. Concurrent discovery shares one consent prompt. Session changes close the previous connector process and retain saved approval. Saved consent covers future sessions and model changes: use trusted models, or revoke it with `/codex-permissions connectors ask`.
 
 Optionally restrict discovery and calls with `PI_CODEX_CONNECTORS_ALLOW=GitHub` (comma-separated exact connector names or IDs). An empty value exposes no connectors. Without this setting all enabled, callable connectors are eligible. Read-only annotations are provider hints, not an independent authorization boundary.
 
-Write approvals reject arguments over 2000 characters rather than hiding fields. `WRITES=allow` explicitly bypasses approval; use it only in trusted automation. Destructive tools require write approval even if also marked read-only.
+In `ask` mode, write approvals reject arguments over 2000 characters rather than hiding fields. Saved `writes: allow` or `PI_CODEX_CONNECTORS_WRITES=allow` bypasses approval. Destructive tools follow the write policy even if also marked read-only.
 
 Large results are truncated in memory, never saved by this extension. Narrow queries or paginate to retrieve more. Existing files from older versions are not removed automatically.
 
