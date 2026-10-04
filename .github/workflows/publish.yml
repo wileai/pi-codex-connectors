@@ -43,6 +43,7 @@ jobs:
       - run: npm install --global npm@11.12.1 --ignore-scripts
       - run: make setup
       - run: npm run check
+      - run: make test-computer-use
       - run: npm audit --omit=dev
       - run: npm run check:package
         env:

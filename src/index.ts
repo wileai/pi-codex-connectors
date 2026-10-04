@@ -1,3 +1,4 @@
+import computerUse from "./computer-use.ts";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateOutput } from "./output.ts";
@@ -27,6 +28,7 @@ const MAX_LISTED_TOOLS = 80;
 const DESCRIPTION_PREVIEW = 160;
 
 export default function codexConnectorsExtension(pi: ExtensionAPI) {
+	computerUse(pi);
 	registerPermissions(pi);
 	registerWebSearch(pi);
 	let connectors: CodexConnectors | undefined;
