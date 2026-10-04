@@ -31,6 +31,8 @@ export interface AppServerOptions {
 	env?: NodeJS.ProcessEnv;
 	cwd?: string;
 	onServerRequest?: ServerRequestHandler;
+	/** Cancel startup while waiting for initialize. */
+	signal?: AbortSignal;
 }
 
 export interface RequestOptions {
@@ -78,7 +80,7 @@ export class AppServerClient {
 			await client.request("initialize", {
 				clientInfo: { name: "pi_codex_connectors", title: "pi Codex connectors", version: "0.1.0" },
 				capabilities: { experimentalApi: true },
-			});
+			}, { signal: options.signal });
 			client.notify("initialized", {});
 			return client;
 		} catch (error) {

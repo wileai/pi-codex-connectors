@@ -29,6 +29,24 @@ const callTool = (name: string, args: ToolCall["arguments"]) =>
 const say = (text: string) => fauxAssistantMessage(fauxText(text));
 
 const scripts: Record<string, Step[]> = {
+	"web-policy": [
+		() => callTool("codex_web_search", { search_query: [{ q: "public documentation" }],
+			...(process.env.PI_WEB_TEST_BROADER === "1" ? { mode: "live" } : {}) }),
+		(context) => say(lastToolResult(context).isError ? "SCRIPT_WEB_BLOCKED" : "SCRIPT_FAIL web search unexpectedly ran"),
+	],
+	web: [
+		() => callTool("codex_web_search", { search_query: [{ q: "OpenAI Codex web search documentation" }], response_length: "short" }),
+		(context) => {
+			const { text, isError } = lastToolResult(context);
+			const ref = /turn\d+search\d+/.exec(text)?.[0];
+			if (isError || !ref || !text.includes("https://")) return say("SCRIPT_FAIL web search returned no source");
+			return callTool("codex_web_search", { open: [{ ref_id: ref }] });
+		},
+		(context) => {
+			const { text, isError } = lastToolResult(context);
+			return say(!isError && /Content type:|Total lines:/.test(text) ? "SCRIPT_WEB_OK" : "SCRIPT_FAIL web open returned no page");
+		},
+	],
 	// Discover connectors -> find GitHub profile tool -> read schema -> call it -> report.
 	read: [
 		() => callTool("codex_connectors", {}),
