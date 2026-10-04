@@ -152,6 +152,37 @@ async function assertNoLeftoverAppServers(run: PiRun) {
 describe("pi CLI with the Codex connectors extension", () => {
 	after(() => rmSync(agentDir, { recursive: true, force: true }));
 
+	for (const [policy, extra, expected] of [
+		["headless consent", { PI_CODEX_WEB_SEARCH_DATA: "ask" }, /Web search needs consent/],
+		["data denied", { PI_CODEX_WEB_SEARCH_DATA: "deny" }, /data access denied/],
+		["disabled", { PI_CODEX_WEB_SEARCH_MODE: "disabled" }, /web search is disabled/],
+		["invalid mode", { PI_CODEX_WEB_SEARCH_MODE: "fullfreedom" }, /Invalid web search mode/],
+		["broader access", { PI_WEB_TEST_BROADER: "1" }, /exceeds the user-selected cached mode/],
+	] as const) {
+		it(`web search policy blocks ${policy} in the real Pi host`, async () => {
+			const run = await runPi("web-policy", {
+				PI_CODEX_WEB_SEARCH_DATA: "allow", PI_CODEX_WEB_SEARCH_MODE: "cached",
+				PI_CODEX_CONNECTORS_CODEX: "/nonexistent-codex", ...extra,
+			});
+			assert.equal(run.code, 0, "Pi exited unsuccessfully; diagnostics withheld");
+			assert.ok(!run.invalidOutput, "Pi returned invalid JSON; output withheld");
+			assert.ok(finalText(run) === "SCRIPT_WEB_BLOCKED", "web policy scenario failed");
+			assert.ok(expected.test(toolResults(run)[0]?.text ?? ""), "missing expected web policy error");
+			assert.equal(run.appServers.length, 0);
+		});
+	}
+
+	it("standalone web retrieval searches and opens a result through the real Pi host", async () => {
+		const run = await runPi("web", { PI_CODEX_WEB_SEARCH_DATA: "allow", PI_CODEX_WEB_SEARCH_MODE: "indexed" });
+		assert.equal(run.code, 0, "Pi exited unsuccessfully; diagnostics withheld");
+		assert.ok(!run.invalidOutput, "Pi returned invalid JSON; output withheld");
+		assert.ok(finalText(run) === "SCRIPT_WEB_OK", "Pi web retrieval scenario failed; response withheld");
+		assert.deepEqual(toolResults(run).map((result) => [result.tool, result.isError]), [
+			["codex_web_search", false], ["codex_web_search", false],
+		]);
+		await assertNoLeftoverAppServers(run);
+	});
+
 	it("discovers connectors, reads a schema, and calls GitHub through Codex", async () => {
 		const run = await runPi("read");
 		assert.equal(run.code, 0, "Pi exited unsuccessfully; diagnostics withheld");

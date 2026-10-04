@@ -11,4 +11,12 @@ check:
 test:
 	$(MAKE) -C integration test
 
-.PHONY: setup check test
+test-web-search:
+	node --test --test-concurrency=1 integration/web-search.test.ts
+	$(MAKE) -C integration test-web-search-policy
+
+test-web-search-live:
+	node --test --test-concurrency=1 integration/web-search-live.test.ts
+	$(MAKE) -C integration test-web-search-pi
+
+.PHONY: setup check test test-web-search test-web-search-live

@@ -12,10 +12,11 @@ interface Event {
 	id?: string;
 	method?: string;
 	title?: string;
+	success?: boolean;
 	message?: { role?: string; content?: Array<{ type: string; text?: string }> };
 }
 
-async function run(script: string) {
+async function run(script: string, options: { command?: string } = {}) {
 	const cwd = mkdtempSync(join(tmpdir(), "pi-connector-rpc-"));
 	const child = spawn(process.env.PI_BIN ?? "pi", [
 		"--mode", "rpc", "--no-session", "--no-extensions", "--no-skills",
@@ -24,6 +25,7 @@ async function run(script: string) {
 		"--extension", fileURLToPath(new URL("./fixtures/scripted-model.ts", import.meta.url)),
 	], { cwd, env: { ...process.env, PI_CODING_AGENT_DIR: cwd, PI_TELEMETRY: "0",
 		PI_CODEX_CONNECTORS_DATA: "ask", PI_CODEX_CONNECTORS_WRITES: "ask",
+		PI_CODEX_WEB_SEARCH_DATA: "ask", PI_CODEX_WEB_SEARCH_MODE: "cached",
 		PI_CODEX_CONNECTORS_ALLOW: "GitHub", PI_CODEX_SCRIPT: script }, stdio: ["pipe", "pipe", "pipe"] });
 	const dialogs: string[] = [];
 	const texts: string[] = [];
@@ -38,6 +40,10 @@ async function run(script: string) {
 			if (!line.trim()) continue;
 			let event: Event;
 			try { event = JSON.parse(line) as Event; } catch { invalidOutput = true; child.kill("SIGTERM"); return; }
+			if (event.type === "response" && event.id === "initial-command") {
+				if (!event.success) { invalidOutput = true; child.kill("SIGTERM"); return; }
+				child.stdin.write(JSON.stringify({ type: "prompt", message: "Exercise web search policy." }) + "\n");
+			}
 			if (event.type === "extension_ui_request" && event.method === "confirm") {
 				dialogs.push(event.title ?? "");
 				child.stdin.write(JSON.stringify({ type: "extension_ui_response", id: event.id,
@@ -53,7 +59,8 @@ async function run(script: string) {
 	const timer = setTimeout(() => child.kill("SIGTERM"), 120_000);
 	try {
 		const completion = new Promise<number | null>((resolve, reject) => { child.on("close", resolve); child.on("error", () => reject(new Error("Pi process failed to start; diagnostics withheld"))); });
-		child.stdin.write(JSON.stringify({ type: "prompt", message: "Exercise connector approval." }) + "\n");
+		child.stdin.write(JSON.stringify({ type: "prompt", ...(options.command ? { id: "initial-command" } : {}),
+			message: options.command ?? "Exercise connector approval." }) + "\n");
 		assert.equal(await completion, 0, "Pi exited unsuccessfully; diagnostics withheld");
 		assert.ok(!invalidOutput, "Pi returned invalid JSON; output withheld");
 		return { dialogs, text: texts.join("\n") };
@@ -74,4 +81,16 @@ it("real Pi UI honors a declined write after accepting data consent", async () =
 	assert.equal(result.dialogs.length, 2);
 	assert.ok(/^Allow GitHub:/.test(result.dialogs[1]!), "missing GitHub write dialog");
 	assert.ok(/The user declined/.test(result.text), "missing declined-write denial");
+});
+
+it("web search policy honors declined consent in the real Pi UI", async () => {
+	const result = await run("web-policy");
+	assert.deepEqual(result.dialogs, ["Enable Codex web search for this Pi session?"]);
+	assert.ok(/Web search access declined/.test(result.text), "missing declined-search denial");
+});
+
+it("web search policy can be disabled by the real Pi user command", async () => {
+	const result = await run("web-policy", { command: "/codex-web-search disabled" });
+	assert.equal(result.dialogs.length, 0);
+	assert.ok(/web search is disabled/.test(result.text), "user command did not disable search");
 });

@@ -1,6 +1,6 @@
 # @wileai/pi-codex-connector
 
-Pi extension: use every Codex (ChatGPT) connector you have connected — GitHub, Gmail, Google Calendar/Drive, Slack, Linear, Figma, ... — from any pi model.
+Pi extension: use your connected Codex (ChatGPT) apps and direct web search from any Pi model.
 
 Website: https://wileai.github.io/pi-codex-connectors/
 
@@ -11,7 +11,7 @@ Website: https://wileai.github.io/pi-codex-connectors/
 3. `app/installed` + `mcpServerStatus/list` build the catalog of connected connectors and their tools.
 4. Tools run through `mcpServer/tool/call`. No Codex model turn runs.
 
-The model gets three tools instead of hundreds of schemas:
+Connector access uses three tools instead of hundreds of schemas:
 
 | Tool | Purpose |
 |---|---|
@@ -20,6 +20,65 @@ The model gets three tools instead of hundreds of schemas:
 | `codex_connector_call` | Run a tool with JSON arguments |
 
 `/codex-connectors [refresh]` shows the catalog.
+
+## Direct web search
+
+`codex_web_search` searches and reads the public web through Codex's standalone `alpha/search` endpoint. It never starts a Codex model turn or calls the Responses API. The endpoint requires a `model` routing field; this does not start inference in this extension. Backend processing and billing are not established by the response.
+
+The extension asks `codex app-server` for your ChatGPT access token using `getAuthStatus`, keeps it in memory for the request, and sends it only to the fixed HTTPS search endpoint. Codex owns login and credential storage; the extension does not read `auth.json`, implement OAuth, or save tokens. Redirects are rejected. **Unlike connector calls, direct web search handles an access token in the extension process.**
+
+This is an internal alpha endpoint, verified with Codex CLI 0.160.0. Its availability and schema can change. Search failure never falls back to a model turn. Use `PI_CODEX_CONNECTORS_CODEX` if your Codex executable is not on PATH. Both a standalone CLI and the desktop app's bundled CLI can supply authentication.
+
+### Access modes
+
+Set the initial maximum with `PI_CODEX_WEB_SEARCH_MODE`, or change it for this Pi session with `/codex-web-search cached`, `/codex-web-search indexed`, `/codex-web-search live`, or `/codex-web-search disabled`.
+
+| Mode | Requested backend access |
+|---|---|
+| `disabled` | No search requests |
+| `cached` (default) | Cached results; `external_web_access: false` |
+| `indexed` | External access gated by the search index; `external_web_access: "indexed"` |
+| `live` | Live retrieval; `external_web_access: true` |
+
+The tool's optional `mode` can narrow this maximum, never exceed it. For example, a session set to `indexed` rejects a tool request for `live`. Only the user command or startup environment selects broader access. Changing modes clears result references and requires fresh consent.
+
+These are hosted retrieval modes, **not local shell sandbox permissions**. They do not grant access to local files, a signed-in browser, or arbitrary shell commands. The extension has its own mode setting; it does not inherit Codex's `web_search` config or local command network rules. `allowed_domains` is a backend search filter, not a local network firewall. See [OpenAI's web search documentation](https://learn.chatgpt.com/docs/web-search) and the [Codex mode mapping](https://github.com/openai/codex/blob/main/codex-rs/ext/web-search/src/extension.rs).
+
+### Tool arguments
+
+At least one of `search_query`, `open`, `find`, or `click` is required. Each accepts up to four operations:
+
+```json
+{"search_query":[{"q":"Codex web search documentation","domains":["developers.openai.com"]}],"response_length":"short"}
+```
+
+```json
+{"open":[{"ref_id":"turn0search0"}]}
+```
+
+```json
+{"find":[{"ref_id":"turn0search0","pattern":"web search"}]}
+```
+
+```json
+{"click":[{"ref_id":"turn0view0","id":12}]}
+```
+
+Use actual `ref_id` and link IDs returned by the previous call, or a URL for `open`/`find`. References last for the current Pi session and search mode. A resumed or switched session starts fresh. `response_length` accepts `short` (default), `medium`, or `long`. Queries can include `recency` in days; `allowed_domains` applies a backend domain filter to the request. Cite the returned source URLs in answers.
+
+Search has separate session consent: `PI_CODEX_WEB_SEARCH_DATA=ask` (default), `allow`, or `deny`. Headless use requires `allow`. Queries and requested URLs go to OpenAI, and results enter the selected Pi model's context. Conversation history is not sent. Results are bounded in memory; tokens, encrypted payloads, and raw error bodies are excluded from tool results. Returned web content remains untrusted.
+
+`PI_CODEX_WEB_SEARCH_MODEL` overrides the endpoint's routing field (default `gpt-5.4`); it does not select the Pi model. On authentication failure, renew your login with `codex login`. The extension never changes your login automatically.
+
+### Try a local checkout
+
+From the checkout containing this change:
+
+```bash
+PI_CODEX_WEB_SEARCH_MODE=indexed pi --no-extensions --extension ./src/index.ts
+```
+
+This loads the checkout for one run, avoiding duplicate tools from an installed version. Accept the search consent prompt, then ask: “Use codex_web_search to find Codex web search documentation, open a result, and cite its URL.” Use `/codex-web-search live` to try live retrieval. No npm installation or settings change is needed.
 
 ## Writes
 
@@ -70,7 +129,7 @@ Use `--local` on both commands for a project-local installation. Restart Pi afte
 
 ## Tests
 
-Integration and scenario tests only; they use the real Codex app-server and your Codex login. No model tokens: pi scenarios use a scripted model (`integration/fixtures/scripted-model.ts`).
+Connector integration and scenario tests use the real Codex app-server and your Codex login. Pi scenarios use a scripted model (`integration/fixtures/scripted-model.ts`), so they do not run model inference. Web-search protocol tests use synthetic auth and intercepted HTTP; live retrieval tests separately exercise the real endpoint with public queries. Backend search accounting is not established by these tests.
 
 Use a dedicated, minimally privileged account for public CI. Tests keep connector responses in memory, drain child-process diagnostics, and report fixed failure labels rather than account data. Do not upload raw Pi transcripts or Codex diagnostics. Pi scenarios allowlist GitHub and set an explicit write policy. The test runner uses the development Pi host patched by `make setup`; `PI_BIN` can override it.
 
@@ -78,6 +137,8 @@ Use a dedicated, minimally privileged account for public CI. Tests keep connecto
 make setup   # install and patch the development Pi host
 make check   # typecheck
 make test    # integration/Makefile: test-connectors, test-pi, test-rpc
+make test-web-search       # offline protocol, privacy, and access-control checks
+make test-web-search-live  # real retrieval + real Pi scenarios; requires codex login
 ```
 
 ## Privacy and safety

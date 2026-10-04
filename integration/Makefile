@@ -19,3 +19,12 @@ test-rpc:
 	node --test --test-concurrency=1 rpc-scenario.test.ts
 
 .PHONY: test-rpc
+
+test-web-search-policy:
+	node --test --test-concurrency=1 --test-name-pattern='web search policy' pi-scenario.test.ts
+	node --test --test-concurrency=1 --test-name-pattern='web search policy' rpc-scenario.test.ts
+
+test-web-search-pi:
+	node --test --test-concurrency=1 --test-name-pattern='standalone web retrieval' pi-scenario.test.ts
+
+.PHONY: test-web-search-policy test-web-search-pi

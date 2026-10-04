@@ -1,6 +1,7 @@
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateOutput } from "./output.ts";
+import { registerWebSearch } from "./web-search-extension.ts";
 import { Type } from "typebox";
 import {
 	CodexConnectors,
@@ -27,6 +28,7 @@ const DESCRIPTION_PREVIEW = 160;
 type WritePolicy = "ask" | "allow" | "deny";
 
 export default function codexConnectorsExtension(pi: ExtensionAPI) {
+	registerWebSearch(pi);
 	let connectors: CodexConnectors | undefined;
 	// Elicitations arrive on the app-server channel, not on a tool call; answer with the latest UI.
 	let activeContext: ExtensionContext | undefined;
