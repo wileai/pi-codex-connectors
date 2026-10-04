@@ -1,6 +1,6 @@
 {
 	"name": "@wileai/pi-codex-connector",
-	"version": "0.1.1",
+	"version": "0.2.0",
 	"license": "MIT",
 	"description": "Use every connected Codex (ChatGPT) connector from any pi model",
 	"type": "module",
