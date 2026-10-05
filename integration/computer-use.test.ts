@@ -40,3 +40,22 @@ test("MCP bridge advertises elicitation and returns explicit approval or denial"
   try {const result=await bridge.request("tools/call",{});assert.equal(result.action,action);assert.equal(prompts,1);} finally {await bridge.close();}
  }
 });
+
+test("missing Computer Use runtime does not prevent extension startup", async () => {
+ const previous=process.env.PI_CODEX_COMPUTER_APP;
+ const commands=new Map<string, any>();
+ const tools: string[]=[];
+ const dir=mkdtempSync(join(tmpdir(),"missing-computer-runtime-"));
+ try {
+  process.env.PI_CODEX_COMPUTER_APP=dir;
+  const {default:register}=await import("../src/computer-use.ts");
+  register({registerCommand:(name:string,command:unknown)=>commands.set(name,command),registerTool:(tool:{name:string})=>tools.push(tool.name)} as any);
+  assert.deepEqual(tools,[]);
+  let message="";
+  await commands.get("codex-computer").handler("",{ui:{notify:(text:string)=>{message=text;}}});
+  assert.match(message,/requires macOS|runtime missing/);
+ } finally {
+  if(previous===undefined)delete process.env.PI_CODEX_COMPUTER_APP;else process.env.PI_CODEX_COMPUTER_APP=previous;
+  rmSync(dir,{recursive:true,force:true});
+ }
+});
