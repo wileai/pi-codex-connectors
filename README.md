@@ -192,13 +192,10 @@ The extension has no runtime import of Pi's SDK; Pi SDK peer dependencies are op
 
 MIT. See [LICENSE](LICENSE).
 
-## Computer Use (macOS, optional)
+## Computer Use (macOS)
 
-Enable the desktop Computer Use tools when starting Pi:
-
-```sh
-PI_CODEX_COMPUTER_USE=1 pi
-```
+Computer Use tools load automatically with this extension when the desktop runtime
+is available. Start Pi normally; no enable flag is needed.
 
 Requires a locally installed ChatGPT desktop app with its Computer Use runtime and
 macOS permissions. Set `PI_CODEX_COMPUTER_APP` if the app is not at
@@ -222,5 +219,7 @@ clears both. Native app restrictions remain enforced. Headless requests need a
 previously saved grant; otherwise they are declined. App access does not authorize
 sending messages, deleting data, or other actions outside your requested task.
 
-`/codex-computer` displays the installed runtime version. Computer Use is disabled
-by default and does not affect connector/web-search permissions.
+`/codex-computer` displays the installed runtime version. When the runtime is
+unavailable, it explains what is missing;
+connectors and web search remain available. App approvals are still required and
+do not affect connector/web-search permissions.

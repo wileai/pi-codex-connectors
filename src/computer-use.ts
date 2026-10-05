@@ -7,10 +7,8 @@ import { ComputerBridge, type Elicitation, type ElicitationReply } from "./compu
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-/** Optional macOS integration using the user-installed desktop runtime. */
+/** Automatically expose Computer Use when the desktop runtime is available. */
 export default function computerUse(pi: ExtensionAPI) {
-	if (process.env.PI_CODEX_COMPUTER_USE !== "1") return;
-	if (process.platform !== "darwin") throw new Error("Computer Use requires macOS.");
 	const app = process.env.PI_CODEX_COMPUTER_APP ?? "/Applications/ChatGPT.app";
 	const root = join(app, "Contents/Resources/cua_node");
 	const modules = join(root, "lib/node_modules");
@@ -18,9 +16,18 @@ export default function computerUse(pi: ExtensionAPI) {
 	const repl = join(root, "bin/node_repl");
 	const wrapper = join(modules, "@oai/cua-repl/bin/cua-repl.mjs");
 	const approvals = new AppApprovals(join((process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi/agent")).replace(/^~(?=\/|$)/, homedir()), "computer-use-approvals.json"));
-	for (const path of [node, repl, wrapper, join(modules, "@oai/sky/package.json")]) {
-		if (!existsSync(path)) throw new Error("Desktop Computer Use runtime missing. Set PI_CODEX_COMPUTER_APP to the installed ChatGPT.app path.");
+	const unavailable = process.platform !== "darwin" ? "Computer Use requires macOS."
+		: [node, repl, wrapper, join(modules, "@oai/sky/package.json")].some(path => !existsSync(path))
+			? "Desktop Computer Use runtime missing. Install ChatGPT with Computer Use, or set PI_CODEX_COMPUTER_APP to its installed path."
+			: undefined;
+	if (unavailable) {
+		pi.registerCommand("codex-computer", {
+			description: "Show why Computer Use is unavailable",
+			handler: async (_args, ctx) => { ctx.ui.notify(unavailable, "warning"); },
+		});
+		return;
 	}
+
 	let bridge: ComputerBridge | undefined;
 	let activeContext: ExtensionContext | undefined;
 	let busy = false;
