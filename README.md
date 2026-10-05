@@ -191,3 +191,36 @@ The extension has no runtime import of Pi's SDK; Pi SDK peer dependencies are op
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Computer Use (macOS, optional)
+
+Enable the desktop Computer Use tools when starting Pi:
+
+```sh
+PI_CODEX_COMPUTER_USE=1 pi
+```
+
+Requires a locally installed ChatGPT desktop app with its Computer Use runtime and
+macOS permissions. Set `PI_CODEX_COMPUTER_APP` if the app is not at
+`/Applications/ChatGPT.app`. This is an experimental integration with internal
+runtime interfaces that may change between desktop releases.
+
+The tools `mcp__codex_computer__js` and `mcp__codex_computer__js_reset` run persistent
+JavaScript using `@oai/sky`. The desktop launcher starts the runtime with a Sky-only
+bootstrap; the `cua` API is not loaded. Desktop actions do not start another Codex
+model turn. Your selected Pi model still reasons about results and receives app
+content and screenshots.
+
+Try: **Use @oai/sky to calculate 125 × 8, then 360 ÷ 8 in Calculator. Verify each
+result from the app.**
+
+Each app requests access with **Yes, for this session**, **Yes, forever**, or **No**.
+Forever is offered only when native policy permits persistence. Session grants
+reset with the Pi session; forever grants are stored locally in
+`computer-use-approvals.json` in your Pi agent directory. `/codex-computer forget`
+clears both. Native app restrictions remain enforced. Headless requests need a
+previously saved grant; otherwise they are declined. App access does not authorize
+sending messages, deleting data, or other actions outside your requested task.
+
+`/codex-computer` displays the installed runtime version. Computer Use is disabled
+by default and does not affect connector/web-search permissions.

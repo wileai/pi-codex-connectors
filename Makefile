@@ -20,3 +20,8 @@ test-web-search-live:
 	$(MAKE) -C integration test-web-search-pi
 
 .PHONY: setup check test test-web-search test-web-search-live
+
+test-computer-use:
+	node --test integration/computer-use.test.ts
+
+.PHONY: test-computer-use
